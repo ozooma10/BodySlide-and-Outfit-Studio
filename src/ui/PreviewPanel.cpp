@@ -460,13 +460,16 @@ SFMaterialDatabase* PreviewPanel::GetSFMaterialDatabase() {
 		}
 	}
 
-	if (data.IsEmpty())
+	if (data.IsEmpty()) {
+		wxLogWarning("Could not find 'materials/materialsbeta.cdb' in the loaded archives. Make sure 'Starfield - Materials.ba2' is in the game data path and not excluded in the settings.");
 		return nullptr;
+	}
 
 	sfMaterialDbContent.assign(static_cast<const char*>(data.GetData()), data.GetDataLen());
 	sfMaterialDbStream = std::make_unique<std::istringstream>(sfMaterialDbContent, std::ios::in | std::ios::binary);
 
 	if (!sfMaterialDb->Load(*sfMaterialDbStream) || sfMaterialDb->Failed()) {
+		wxLogWarning("Failed to parse material database 'materials/materialsbeta.cdb'.");
 		sfMaterialDbContent.clear();
 		sfMaterialDbStream.reset();
 		return nullptr;
@@ -537,16 +540,24 @@ void PreviewPanel::AddNifShapeTextures(NifFile* fromNif, const std::string& shap
 					}
 				}
 
+				bool resolvedFromCdb = false;
 				if (!resolvedFromArchive) {
 					std::string materialJson;
 					SFMaterialDatabase* cdb = GetSFMaterialDatabase();
 					if (cdb && cdb->GetMaterialJSON(matFile, materialJson)) {
 						std::istringstream materialStream(materialJson);
 						SFMaterialFile cdbMat(materialStream);
-						if (!cdbMat.Failed())
+						if (!cdbMat.Failed()) {
 							texFiles = cdbMat.GetTextureFiles(MAX_TEXTURE_PATHS);
+							resolvedFromCdb = true;
+						}
 					}
 				}
+
+				if (!resolvedFromArchive && !resolvedFromCdb)
+					wxLogWarning("Material '%s' of shape '%s' not found in loose files, archives or the material database. Falling back to NIF texture paths.",
+								 matFile,
+								 shapeName);
 
 				bool hasAnyTex = false;
 				for (int i = 0; i < MAX_TEXTURE_PATHS && !hasAnyTex; i++)
@@ -612,9 +623,14 @@ void PreviewPanel::AddNifShapeTextures(NifFile* fromNif, const std::string& shap
 			}
 		}
 	}
-	else if (shader) {
-		for (int i = 0; i < MAX_TEXTURE_PATHS; i++)
-			fromNif->GetTextureSlot(shape, texFiles[i], i);
+	else {
+		if (shape && fromNif->GetHeader().GetVersion().IsSF())
+			wxLogWarning("Shape '%s' has no material path. Starfield textures are resolved via the .mat file path set on the shape's shader.", shapeName);
+
+		if (shader) {
+			for (int i = 0; i < MAX_TEXTURE_PATHS; i++)
+				fromNif->GetTextureSlot(shape, texFiles[i], i);
+		}
 	}
 
 	for (int i = 0; i < MAX_TEXTURE_PATHS; i++) {

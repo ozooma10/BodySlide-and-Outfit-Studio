@@ -2314,9 +2314,15 @@ void OutfitProject::SetTextures(NiShape* shape, const std::vector<std::string>& 
 						}
 					}
 
-					if (!resolvedFromArchive && !resolvedFromCdb && shader) {
-						for (int i = 0; i < MAX_TEXTURE_PATHS; i++)
-							workNif.GetTextureSlot(shape, texFiles[i], i);
+					if (!resolvedFromArchive && !resolvedFromCdb) {
+						wxLogWarning("Material '%s' of shape '%s' not found in loose files, archives or the material database. Falling back to NIF texture paths.",
+									 matFile,
+									 shapeName);
+
+						if (shader) {
+							for (int i = 0; i < MAX_TEXTURE_PATHS; i++)
+								workNif.GetTextureSlot(shape, texFiles[i], i);
+						}
 					}
 				}
 			}
@@ -2362,9 +2368,15 @@ void OutfitProject::SetTextures(NiShape* shape, const std::vector<std::string>& 
 				}
 			}
 		}
-		else if (shader) {
-			for (int i = 0; i < MAX_TEXTURE_PATHS; i++)
-				workNif.GetTextureSlot(shape, texFiles[i], i);
+		else {
+			if (workNif.GetHeader().GetVersion().IsSF())
+				wxLogWarning("Shape '%s' has no material path. Starfield textures are resolved via the .mat file path set on the shape's shader (see Shape Properties).",
+							 shapeName);
+
+			if (shader) {
+				for (int i = 0; i < MAX_TEXTURE_PATHS; i++)
+					workNif.GetTextureSlot(shape, texFiles[i], i);
+			}
 		}
 
 		for (int i = 0; i < MAX_TEXTURE_PATHS; i++) {
@@ -7040,13 +7052,16 @@ SFMaterialDatabase* OutfitProject::GetSFMaterialDatabase() {
 	sfMaterialDb = std::make_unique<SFMaterialDatabase>();
 
 	wxMemoryBuffer data;
-	if (!ArchiveMaterialLoader::ReadFile("materials/materialsbeta.cdb", data) || data.IsEmpty())
+	if (!ArchiveMaterialLoader::ReadFile("materials/materialsbeta.cdb", data) || data.IsEmpty()) {
+		wxLogWarning("Could not find 'materials/materialsbeta.cdb' in the loaded archives. Make sure 'Starfield - Materials.ba2' is in the game data path and not excluded in the settings.");
 		return nullptr;
+	}
 
 	sfMaterialDbContent.assign(static_cast<const char*>(data.GetData()), data.GetDataLen());
 	sfMaterialDbStream = std::make_unique<std::istringstream>(sfMaterialDbContent, std::ios::in | std::ios::binary);
 
 	if (!sfMaterialDb->Load(*sfMaterialDbStream) || sfMaterialDb->Failed()) {
+		wxLogWarning("Failed to parse material database 'materials/materialsbeta.cdb'.");
 		sfMaterialDbContent.clear();
 		sfMaterialDbStream.reset();
 		return nullptr;
