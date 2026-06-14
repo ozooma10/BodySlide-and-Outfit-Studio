@@ -34,8 +34,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "SliderDataImportDialog.h"
 #include "AutomationDialog.h"
 #include "../components/ClippingFixer.h"
+#include "../utils/ProjectUtil.h"
+#include "../utils/GameUtil.h"
 #include "../utils/StackTrace.h"
 #include "../utils/StringStuff.h"
+#include "../utils/SettingsDialogShared.h"
 
 #include <cstdlib>
 #include <sstream>
@@ -424,7 +427,6 @@ wxIMPLEMENT_APP(OutfitStudio);
 ConfigurationManager Config;
 ConfigurationManager OutfitStudioConfig;
 
-const std::array<wxString, 10> TargetGames = {"Fallout3", "FalloutNewVegas", "Skyrim", "Fallout4", "SkyrimSpecialEdition", "Fallout4VR", "SkyrimVR", "Fallout76", "Oblivion", "Starfield"};
 const std::array<wxLanguage, 37> SupportedLangs = {wxLANGUAGE_ENGLISH,	  wxLANGUAGE_AFRIKAANS,		   wxLANGUAGE_ARABIC,  wxLANGUAGE_CATALAN,	  wxLANGUAGE_CZECH,
 												   wxLANGUAGE_DANISH,	  wxLANGUAGE_GERMAN,		   wxLANGUAGE_GREEK,   wxLANGUAGE_SPANISH,	  wxLANGUAGE_BASQUE,
 												   wxLANGUAGE_FINNISH,	  wxLANGUAGE_FRENCH,		   wxLANGUAGE_HINDI,   wxLANGUAGE_HUNGARIAN,  wxLANGUAGE_INDONESIAN,
@@ -434,10 +436,7 @@ const std::array<wxLanguage, 37> SupportedLangs = {wxLANGUAGE_ENGLISH,	  wxLANGU
 												   wxLANGUAGE_ALBANIAN,	  wxLANGUAGE_SWEDISH,		   wxLANGUAGE_TAMIL,   wxLANGUAGE_TURKISH,	  wxLANGUAGE_UKRAINIAN,
 												   wxLANGUAGE_VIETNAMESE, wxLANGUAGE_CHINESE};
 
-std::string GetProjectPath() {
-	std::string res = Config["ProjectPath"];
-	return res.empty() ? Config["AppDir"] : res;
-}
+
 
 // Load files into the current project
 void OutfitStudioFrame::LoadFiles(const wxArrayString& files, const wxString& projectName) {
@@ -532,6 +531,8 @@ bool OutfitStudio::OnInit() {
 	wxHandleFatalExceptions();
 #endif
 
+	SetAppearance(SettingsDialogShared::GetConfiguredAppearance(Config));
+
 	wxString appDirUri = wxString::FromUTF8(dataDir);
 	appDirUri.Replace("#", "%23");
 	wxSetEnv("AppDir", appDirUri);
@@ -581,7 +582,7 @@ bool OutfitStudio::OnInit() {
 		// Intentionally do not call frame->Show() / Maximize().
 		SetTopWindow(frame);
 
-		InitArchives();
+		GameUtil::InitArchives();
 
 		// Defer execution until the main loop is running so wxYield/UI events work.
 		CallAfter([this]() {
@@ -700,7 +701,7 @@ bool OutfitStudio::OnInit() {
 		ipcServer = nullptr;
 	}
 
-	InitArchives();
+	GameUtil::InitArchives();
 
 	if (!Config["GameDataPath"].empty()) {
 		bool dirWritable = wxFileName::IsDirWritable(Config["GameDataPath"]);
@@ -873,6 +874,7 @@ bool OutfitStudio::SetDefaultConfig() {
 	Config.SetDefaultBoolValue("BSATextureScan", true);
 	Config.SetDefaultValue("LogLevel", "3");
 	Config.SetDefaultBoolValue("UseSystemLanguage", false);
+	SettingsDialogShared::SetDefaultAppearanceMode(Config);
 	Config.SetDefaultValue("Input/SliderMinimum", 0);
 	Config.SetDefaultValue("Input/SliderMaximum", 100);
 	Config.SetDefaultBoolValue("Input/LeftMousePan", false);
@@ -928,11 +930,10 @@ bool OutfitStudio::SetDefaultConfig() {
 
 	targetGame = (TargetGame)Config.GetIntValue("TargetGame");
 
-	wxString gameKey = Config["GameRegKey/" + TargetGames[targetGame]];
-	wxString gameValueKey = Config["GameRegVal/" + TargetGames[targetGame]];
-
 	if (Config["GameDataPath"].empty()) {
 #ifdef _WINDOWS
+		wxString gameKey = Config["GameRegKey/" + GameUtil::TargetGames[targetGame]];
+		wxString gameValueKey = Config["GameRegVal/" + GameUtil::TargetGames[targetGame]];
 		wxRegKey key(wxRegKey::HKLM, gameKey, wxRegKey::WOW64ViewMode_32);
 		if (!gameKey.empty() && key.Exists()) {
 			wxString installPath;
@@ -1034,55 +1035,55 @@ bool OutfitStudio::ShowSetup() {
 		wxDirPickerCtrl* dirStarfield = XRCCTRL(*setup, "dirStarfield", wxDirPickerCtrl);
 		dirStarfield->Bind(wxEVT_DIRPICKER_CHANGED, [&dirStarfield, &btStarfield](wxFileDirPickerEvent&) { btStarfield->Enable(dirStarfield->GetDirName().DirExists()); });
 
-		wxFileName dir = GetGameDataPath(OB);
+		wxFileName dir = GameUtil::GetGameDataPath(OB);
 		if (dir.DirExists()) {
 			dirOblivion->SetDirName(dir);
 			btOblivion->Enable();
 		}
 
-		dir = GetGameDataPath(FO3);
+		dir = GameUtil::GetGameDataPath(FO3);
 		if (dir.DirExists()) {
 			dirFallout3->SetDirName(dir);
 			btFallout3->Enable();
 		}
 
-		dir = GetGameDataPath(FONV);
+		dir = GameUtil::GetGameDataPath(FONV);
 		if (dir.DirExists()) {
 			dirFalloutNV->SetDirName(dir);
 			btFalloutNV->Enable();
 		}
 
-		dir = GetGameDataPath(SKYRIM);
+		dir = GameUtil::GetGameDataPath(SKYRIM);
 		if (dir.DirExists()) {
 			dirSkyrim->SetDirName(dir);
 			btSkyrim->Enable();
 		}
 
-		dir = GetGameDataPath(FO4);
+		dir = GameUtil::GetGameDataPath(FO4);
 		if (dir.DirExists()) {
 			dirFallout4->SetDirName(dir);
 			btFallout4->Enable();
 		}
 
-		dir = GetGameDataPath(SKYRIMSE);
+		dir = GameUtil::GetGameDataPath(SKYRIMSE);
 		if (dir.DirExists()) {
 			dirSkyrimSE->SetDirName(dir);
 			btSkyrimSE->Enable();
 		}
 
-		dir = GetGameDataPath(FO4VR);
+		dir = GameUtil::GetGameDataPath(FO4VR);
 		if (dir.DirExists()) {
 			dirFallout4VR->SetDirName(dir);
 			btFallout4VR->Enable();
 		}
 
-		dir = GetGameDataPath(SKYRIMVR);
+		dir = GameUtil::GetGameDataPath(SKYRIMVR);
 		if (dir.DirExists()) {
 			dirSkyrimVR->SetDirName(dir);
 			btSkyrimVR->Enable();
 		}
 
-		dir = GetGameDataPath(SF);
+		dir = GameUtil::GetGameDataPath(SF);
 		if (dir.DirExists()) {
 			dirStarfield->SetDirName(dir);
 			btStarfield->Enable();
@@ -1142,7 +1143,7 @@ bool OutfitStudio::ShowSetup() {
 			}
 
 			Config.SetValue("GameDataPath", dataDir.GetFullPath().ToUTF8().data());
-			Config.SetValue("GameDataPaths/" + TargetGames[targ].ToStdString(), dataDir.GetFullPath().ToUTF8().data());
+			Config.SetValue("GameDataPaths/" + GameUtil::TargetGames[targ].ToStdString(), dataDir.GetFullPath().ToUTF8().data());
 
 			Config.SaveConfig(Config["AppDir"] + "/Config.xml");
 			delete setup;
@@ -1154,30 +1155,6 @@ bool OutfitStudio::ShowSetup() {
 	}
 
 	return true;
-}
-
-wxString OutfitStudio::GetGameDataPath(TargetGame targ) {
-	wxString dataPath;
-	wxString gamestr = TargetGames[targ];
-	wxString gkey = "GameRegKey/" + gamestr;
-	wxString gval = "GameRegVal/" + gamestr;
-	wxString cust = "GameDataPaths/" + gamestr;
-
-	if (!Config[cust].IsEmpty()) {
-		dataPath = Config[cust];
-	}
-#ifdef _WINDOWS
-	else {
-		std::string gameKey = Config[gkey];
-		wxRegKey key(wxRegKey::HKLM, gameKey, wxRegKey::WOW64ViewMode_32);
-		if (!gameKey.empty() && key.Exists()) {
-			if (key.HasValues() && key.QueryValue(Config[gval], dataPath)) {
-				dataPath.Append("Data").Append(PathSepChar);
-			}
-		}
-	}
-#endif
-	return dataPath;
 }
 
 void OutfitStudio::InitLanguage() {
@@ -1212,40 +1189,6 @@ void OutfitStudio::InitLanguage() {
 	}
 
 	wxLogMessage("Using language '%s'.", wxLocale::GetLanguageName(lang));
-}
-
-void OutfitStudio::InitArchives() {
-	// Auto-detect archives
-	FSManager::del();
-
-	std::vector<std::string> fileList;
-	GetArchiveFiles(fileList);
-
-	FSManager::addArchives(fileList);
-}
-
-void OutfitStudio::GetArchiveFiles(std::vector<std::string>& outList) {
-	TargetGame targ = (TargetGame)Config.GetIntValue("TargetGame");
-	std::string cp = "GameDataFiles/" + TargetGames[targ].ToStdString();
-	wxString activatedFiles = Config[cp];
-
-	wxStringTokenizer tokenizer(activatedFiles, ";");
-	std::map<wxString, bool> fsearch;
-	while (tokenizer.HasMoreTokens()) {
-		wxString val = tokenizer.GetNextToken().Trim(false);
-		val = val.Trim().MakeLower();
-		fsearch[val] = true;
-	}
-
-	wxString dataDir = Config["GameDataPath"];
-	wxArrayString files;
-	wxDir::GetAllFiles(dataDir, &files, "*.ba2", wxDIR_FILES);
-	wxDir::GetAllFiles(dataDir, &files, "*.bsa", wxDIR_FILES);
-	for (auto& f : files) {
-		f = f.AfterLast('/').AfterLast('\\');
-		if (fsearch.find(f.Lower()) == fsearch.end())
-			outList.push_back((dataDir + f).ToUTF8().data());
-	}
 }
 
 
@@ -1819,8 +1762,8 @@ void OutfitStudioFrame::OnPackProjects(wxCommandEvent& WXUNUSED(event)) {
 		});
 
 		wxArrayString files;
-		wxDir::GetAllFiles(wxString::FromUTF8(GetProjectPath()) + "/SliderSets", &files, "*.osp");
-		wxDir::GetAllFiles(wxString::FromUTF8(GetProjectPath()) + "/SliderSets", &files, "*.xml");
+		wxDir::GetAllFiles(wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/SliderSets", &files, "*.osp");
+		wxDir::GetAllFiles(wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/SliderSets", &files, "*.xml");
 
 		for (auto& file : files) {
 			std::string fileName{file.ToUTF8()};
@@ -1864,7 +1807,7 @@ void OutfitStudioFrame::OnPackProjects(wxCommandEvent& WXUNUSED(event)) {
 		});
 
 		auto groupFile = XRCCTRL(*packProjects, "groupFile", wxFilePickerCtrl);
-		groupFile->SetInitialDirectory(wxString::FromUTF8(GetProjectPath()) + "/SliderGroups");
+		groupFile->SetInitialDirectory(wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/SliderGroups");
 
 		auto mergedFileName = XRCCTRL(*packProjects, "mergedFileName", wxTextCtrl);
 		auto packFolder = XRCCTRL(*packProjects, "packFolder", wxButton);
@@ -1898,7 +1841,7 @@ void OutfitStudioFrame::OnPackProjects(wxCommandEvent& WXUNUSED(event)) {
 				projectFile.UpdateSet(set);
 
 				// Add input file to folder
-				wxString inputFilePath = wxString::FromUTF8(GetProjectPath() + sep + "ShapeData" + sep + set.GetInputFileName());
+				wxString inputFilePath = wxString::FromUTF8(ProjectUtil::GetProjectPath() + sep + "ShapeData" + sep + set.GetInputFileName());
 				wxFileInputStream inputFileStream(inputFilePath);
 				if (!inputFileStream.IsOk()) {
 					wxLogError("Failed to open input file '%s'!", inputFilePath);
@@ -1945,7 +1888,7 @@ void OutfitStudioFrame::OnPackProjects(wxCommandEvent& WXUNUSED(event)) {
 
 				// Add data files to folder
 				for (auto& df : dataFiles) {
-					wxString dataFilePath = wxString::FromUTF8(GetProjectPath() + sep + "ShapeData" + sep + df);
+					wxString dataFilePath = wxString::FromUTF8(ProjectUtil::GetProjectPath() + sep + "ShapeData" + sep + df);
 					wxFileInputStream dataFileStream(dataFilePath);
 					if (!dataFileStream.IsOk()) {
 						wxLogError("Failed to open input file '%s'!", dataFilePath);
@@ -2048,7 +1991,7 @@ void OutfitStudioFrame::OnPackProjects(wxCommandEvent& WXUNUSED(event)) {
 				projectFile.UpdateSet(set);
 
 				// Add input file to archive
-				wxString inputFilePath = wxString::FromUTF8(GetProjectPath() + sep + "ShapeData" + sep + set.GetInputFileName());
+				wxString inputFilePath = wxString::FromUTF8(ProjectUtil::GetProjectPath() + sep + "ShapeData" + sep + set.GetInputFileName());
 				wxFileInputStream inputFileStream(inputFilePath);
 				if (!inputFileStream.IsOk()) {
 					wxLogError("Failed to open input file '%s'!", inputFilePath);
@@ -2099,7 +2042,7 @@ void OutfitStudioFrame::OnPackProjects(wxCommandEvent& WXUNUSED(event)) {
 
 				// Add data files to archive
 				for (auto& df : dataFiles) {
-					wxString dataFilePath = wxString::FromUTF8(GetProjectPath() + sep + "ShapeData" + sep + df);
+					wxString dataFilePath = wxString::FromUTF8(ProjectUtil::GetProjectPath() + sep + "ShapeData" + sep + df);
 					wxFileInputStream dataFileStream(dataFilePath);
 					if (!dataFileStream.IsOk()) {
 						wxLogError("Failed to open data file '%s'!", dataFilePath);
@@ -2232,7 +2175,7 @@ void OutfitStudioFrame::OnChooseTargetGame(wxCommandEvent& event) {
 	}
 
 	wxCheckListBox* dataFileList = XRCCTRL(*parent, "DataFileList", wxCheckListBox);
-	wxString dataDir = wxGetApp().GetGameDataPath(targ);
+	wxString dataDir = GameUtil::GetGameDataPath(targ);
 
 	wxDirPickerCtrl* dpGameDataPath = XRCCTRL(*parent, "dpGameDataPath", wxDirPickerCtrl);
 	dpGameDataPath->SetPath(dataDir);
@@ -2243,7 +2186,7 @@ void OutfitStudioFrame::OnChooseTargetGame(wxCommandEvent& event) {
 void OutfitStudioFrame::SettingsFillDataFiles(wxCheckListBox* dataFileList, wxString& dataDir, int targetGame) {
 	dataFileList->Clear();
 
-	wxString cp = "GameDataFiles/" + TargetGames[targetGame];
+	wxString cp = "GameDataFiles/" + GameUtil::TargetGames[targetGame];
 	wxString activatedFiles = Config[cp];
 
 	wxStringTokenizer tokenizer(activatedFiles, ";");
@@ -2278,177 +2221,63 @@ void OutfitStudioFrame::OnSettings(wxCommandEvent& WXUNUSED(event)) {
 		wxCollapsiblePane* advancedPane = XRCCTRL(*settings, "advancedPane", wxCollapsiblePane);
 		advancedPane->Bind(wxEVT_COLLAPSIBLEPANE_CHANGED, [&settings](wxCommandEvent&) { settings->Fit(); });
 
-		wxChoice* choiceTargetGame = XRCCTRL(*settings, "choiceTargetGame", wxChoice);
-		choiceTargetGame->Select(Config.GetIntValue("TargetGame"));
+		SettingsDialogShared::CommonSettingsDialogControls commonControls{};
+		SettingsDialogShared::InitCommonSettingsDialog(*settings,
+			Config,
+			OutfitStudioConfig,
+			SupportedLangs.data(),
+			SupportedLangs.size(),
+			commonControls);
 
-		wxDirPickerCtrl* dpGameDataPath = XRCCTRL(*settings, "dpGameDataPath", wxDirPickerCtrl);
 		wxString gameDataPath = wxString::FromUTF8(Config["GameDataPath"]);
-		dpGameDataPath->SetPath(gameDataPath);
-
-		wxDirPickerCtrl* dpOutputPath = XRCCTRL(*settings, "dpOutputPath", wxDirPickerCtrl);
-		wxString outputPath = wxString::FromUTF8(Config["OutputDataPath"]);
-		dpOutputPath->SetPath(outputPath);
-		if (wxTextCtrl* outputPathText = dpOutputPath->GetTextCtrl())
-			outputPathText->SetHint(_("Optional (uses Game Data Path if empty)"));
-
-		wxDirPickerCtrl* dpProjectPath = XRCCTRL(*settings, "dpProjectPath", wxDirPickerCtrl);
-		wxString projectPath = wxString::FromUTF8(Config["ProjectPath"]);
-		dpProjectPath->SetPath(projectPath);
-		if (wxTextCtrl* projectPathText = dpProjectPath->GetTextCtrl())
-			projectPathText->SetHint(_("Optional (uses executable directory if empty)"));
-
-		wxCheckBox* cbShowForceBodyNormals = XRCCTRL(*settings, "cbShowForceBodyNormals", wxCheckBox);
-		cbShowForceBodyNormals->SetValue(Config.GetBoolValue("ShowForceBodyNormals"));
-
-		wxCheckBox* cbBSATextures = XRCCTRL(*settings, "cbBSATextures", wxCheckBox);
-		cbBSATextures->SetValue(Config.GetBoolValue("BSATextureScan"));
-
-		wxCheckBox* cbLeftMousePan = XRCCTRL(*settings, "cbLeftMousePan", wxCheckBox);
-		cbLeftMousePan->SetValue(Config.GetBoolValue("Input/LeftMousePan"));
-
-		wxCheckBox* cbBrushSettingsNearCursor = XRCCTRL(*settings, "cbBrushSettingsNearCursor", wxCheckBox);
-		cbBrushSettingsNearCursor->SetValue(Config.GetBoolValue("Input/BrushSettingsNearCursor"));
-
-		wxCheckBox* cbMaskHistory = XRCCTRL(*settings, "cbMaskHistory", wxCheckBox);
-		cbMaskHistory->SetValue(Config.GetBoolValue("Input/MaskHistory"));
 
 		XRCCTRL(*settings, "cbPreviewAlwaysDetached", wxCheckBox)->Hide();
 
 		wxChoice* choiceSingleInstanceBehavior = XRCCTRL(*settings, "choiceSingleInstanceBehavior", wxChoice);
 		choiceSingleInstanceBehavior->SetSelection(OutfitStudioConfig.GetIntValue("SingleInstanceBehavior", 0));
 
-		wxChoice* choiceLanguage = XRCCTRL(*settings, "choiceLanguage", wxChoice);
-		for (size_t i = 0; i < SupportedLangs.size(); i++)
-			choiceLanguage->AppendString(wxLocale::GetLanguageName(SupportedLangs[i]));
+		SettingsFillDataFiles(commonControls.dataFileList, gameDataPath, Config.GetIntValue("TargetGame"));
 
-		if (!choiceLanguage->SetStringSelection(wxLocale::GetLanguageName(Config.GetIntValue("Language"))))
-			choiceLanguage->SetStringSelection("English");
-
-		wxCheckBox* cbPerspectiveView = XRCCTRL(*settings, "cbPerspectiveView", wxCheckBox);
-		cbPerspectiveView->SetValue(OutfitStudioConfig.GetBoolValue("Rendering/PerspectiveView", true));
-
-		wxColourPickerCtrl* cpColorBackground = XRCCTRL(*settings, "cpColorBackground", wxColourPickerCtrl);
-		if (Config.Exists("Rendering/ColorBackground")) {
-			int colorR = Config.GetIntValue("Rendering/ColorBackground.r");
-			int colorG = Config.GetIntValue("Rendering/ColorBackground.g");
-			int colorB = Config.GetIntValue("Rendering/ColorBackground.b");
-			cpColorBackground->SetColour(wxColour(colorR, colorG, colorB));
-		}
-
-		wxColourPickerCtrl* cpColorWire = XRCCTRL(*settings, "cpColorWire", wxColourPickerCtrl);
-		if (Config.Exists("Rendering/ColorWire")) {
-			int colorR = Config.GetIntValue("Rendering/ColorWire.r");
-			int colorG = Config.GetIntValue("Rendering/ColorWire.g");
-			int colorB = Config.GetIntValue("Rendering/ColorWire.b");
-			cpColorWire->SetColour(wxColour(colorR, colorG, colorB));
-		}
-
-		wxColourPickerCtrl* cpColorPoints = XRCCTRL(*settings, "cpColorPoints", wxColourPickerCtrl);
-		if (Config.Exists("Rendering/ColorPoints")) {
-			int colorR = Config.GetIntValue("Rendering/ColorPoints.r");
-			int colorG = Config.GetIntValue("Rendering/ColorPoints.g");
-			int colorB = Config.GetIntValue("Rendering/ColorPoints.b");
-			cpColorPoints->SetColour(wxColour(colorR, colorG, colorB));
-		}
-
-		wxColourPickerCtrl* cpColorPointsMasked = XRCCTRL(*settings, "cpColorPointsMasked", wxColourPickerCtrl);
-		if (Config.Exists("Rendering/ColorPointsMasked")) {
-			int colorR = Config.GetIntValue("Rendering/ColorPointsMasked.r");
-			int colorG = Config.GetIntValue("Rendering/ColorPointsMasked.g");
-			int colorB = Config.GetIntValue("Rendering/ColorPointsMasked.b");
-			cpColorPointsMasked->SetColour(wxColour(colorR, colorG, colorB));
-		}
-
-		wxFilePickerCtrl* fpSkeletonFile = XRCCTRL(*settings, "fpSkeletonFile", wxFilePickerCtrl);
-		fpSkeletonFile->SetPath(wxString::FromUTF8(Config["Anim/DefaultSkeletonReference"]));
-
-		wxChoice* choiceSkeletonRoot = XRCCTRL(*settings, "choiceSkeletonRoot", wxChoice);
-		choiceSkeletonRoot->SetStringSelection(Config["Anim/SkeletonRootName"]);
-
-		wxCheckListBox* dataFileList = XRCCTRL(*settings, "DataFileList", wxCheckListBox);
-		SettingsFillDataFiles(dataFileList, gameDataPath, Config.GetIntValue("TargetGame"));
-
-		choiceTargetGame->Bind(wxEVT_CHOICE, &OutfitStudioFrame::OnChooseTargetGame, this);
+		commonControls.choiceTargetGame->Bind(wxEVT_CHOICE, &OutfitStudioFrame::OnChooseTargetGame, this);
 
 		if (settings->ShowModal() == wxID_OK) {
-			TargetGame targ = (TargetGame)choiceTargetGame->GetSelection();
-			Config.SetValue("TargetGame", targ);
-
-			if (!dpGameDataPath->GetPath().IsEmpty()) {
-				wxFileName gameDataDir = dpGameDataPath->GetDirName();
-				Config.SetValue("GameDataPath", gameDataDir.GetFullPath().ToUTF8().data());
-				Config.SetValue("GameDataPaths/" + TargetGames[targ].ToStdString(), gameDataDir.GetFullPath().ToUTF8().data());
-			}
-
-			// set OutputDataPath even if it is empty
-			wxFileName outputDataDir = dpOutputPath->GetDirName();
-			Config.SetValue("OutputDataPath", outputDataDir.GetFullPath().ToUTF8().data());
-
-			// set ProjectPath even if it is empty
-			wxFileName projectDir = dpProjectPath->GetDirName();
-			Config.SetValue("ProjectPath", projectDir.GetFullPath().ToUTF8().data());
-
-			wxArrayInt items;
-			wxString selectedfiles;
-			for (uint32_t i = 0; i < dataFileList->GetCount(); i++)
-				if (!dataFileList->IsChecked(i))
-					selectedfiles += dataFileList->GetString(i) + "; ";
-
-			selectedfiles = selectedfiles.BeforeLast(';');
-			Config.SetValue("GameDataFiles/" + TargetGames[targ].ToStdString(), selectedfiles.ToUTF8().data());
-
-			Config.SetBoolValue("ShowForceBodyNormals", cbShowForceBodyNormals->IsChecked());
-			Config.SetBoolValue("BSATextureScan", cbBSATextures->IsChecked());
-			Config.SetBoolValue("Input/LeftMousePan", cbLeftMousePan->IsChecked());
-			Config.SetBoolValue("Input/BrushSettingsNearCursor", cbBrushSettingsNearCursor->IsChecked());
-			Config.SetBoolValue("Input/MaskHistory", cbMaskHistory->IsChecked());
+			int targetGameSelection = 0;
+			bool needsRestart = false;
+			SettingsDialogShared::SaveCommonSettingsDialog(
+				Config,
+				OutfitStudioConfig,
+				GameUtil::TargetGames.data(),
+				GameUtil::TargetGames.size(),
+				SupportedLangs.data(),
+				SupportedLangs.size(),
+				commonControls,
+				[]() { wxGetApp().InitLanguage(); },
+				targetGameSelection,
+				needsRestart);
 
 			OutfitStudioConfig.SetValue("SingleInstanceBehavior", choiceSingleInstanceBehavior->GetSelection());
 			OutfitStudioConfig.SaveConfig(Config["AppDir"] + "/OutfitStudio.xml", "OutfitStudioConfig");
 
-			int oldLang = Config.GetIntValue("Language");
-			int newLang = SupportedLangs[choiceLanguage->GetSelection()];
-			if (oldLang != newLang) {
-				Config.SetValue("Language", newLang);
-				wxGetApp().InitLanguage();
-			}
-
-			OutfitStudioConfig.SetBoolValue("Rendering/PerspectiveView", cbPerspectiveView->IsChecked());
-
-			wxColour colorBackground = cpColorBackground->GetColour();
-			Config.SetValue("Rendering/ColorBackground.r", colorBackground.Red());
-			Config.SetValue("Rendering/ColorBackground.g", colorBackground.Green());
-			Config.SetValue("Rendering/ColorBackground.b", colorBackground.Blue());
-			if (glView)
+			// Apply colors to GL view (SaveCommonSettingsDialog already saved them to config)
+			if (glView) {
+				wxColour colorBackground = commonControls.cpColorBackground->GetColour();
 				glView->gls.SetBackgroundColor(Vector3(colorBackground.Red() / 255.0f, colorBackground.Green() / 255.0f, colorBackground.Blue() / 255.0f));
 
-			wxColour colorWire = cpColorWire->GetColour();
-			Config.SetValue("Rendering/ColorWire.r", colorWire.Red());
-			Config.SetValue("Rendering/ColorWire.g", colorWire.Green());
-			Config.SetValue("Rendering/ColorWire.b", colorWire.Blue());
-			if (glView)
+				wxColour colorWire = commonControls.cpColorWire->GetColour();
 				glView->gls.SetWireColor(Vector3(colorWire.Red() / 255.0f, colorWire.Green() / 255.0f, colorWire.Blue() / 255.0f));
 
-			wxColour colorPoints = cpColorPoints->GetColour();
-			Config.SetValue("Rendering/ColorPoints.r", colorPoints.Red());
-			Config.SetValue("Rendering/ColorPoints.g", colorPoints.Green());
-			Config.SetValue("Rendering/ColorPoints.b", colorPoints.Blue());
-			if (glView)
+				wxColour colorPoints = commonControls.cpColorPoints->GetColour();
 				glView->gls.SetPointColor(Vector3(colorPoints.Red() / 255.0f, colorPoints.Green() / 255.0f, colorPoints.Blue() / 255.0f));
 
-			wxColour colorPointsMasked = cpColorPointsMasked->GetColour();
-			Config.SetValue("Rendering/ColorPointsMasked.r", colorPointsMasked.Red());
-			Config.SetValue("Rendering/ColorPointsMasked.g", colorPointsMasked.Green());
-			Config.SetValue("Rendering/ColorPointsMasked.b", colorPointsMasked.Blue());
-			if (glView)
+				wxColour colorPointsMasked = commonControls.cpColorPointsMasked->GetColour();
 				glView->gls.SetMaskedPointColor(Vector3(colorPointsMasked.Red() / 255.0f, colorPointsMasked.Green() / 255.0f, colorPointsMasked.Blue() / 255.0f));
-
-			wxFileName skeletonFile = fpSkeletonFile->GetFileName();
-			Config.SetValue("Anim/DefaultSkeletonReference", skeletonFile.GetFullPath().ToUTF8().data());
-			Config.SetValue("Anim/SkeletonRootName", choiceSkeletonRoot->GetStringSelection().ToUTF8().data());
+			}
 
 			Config.SaveConfig(Config["AppDir"] + "/Config.xml");
-			wxGetApp().InitArchives();
+		GameUtil::InitArchives();
+			if (needsRestart) {
+				wxMessageBox(_("Settings changed. Please restart the application for changes to take effect."), _("Settings Changed"), wxOK | wxICON_INFORMATION);
+			}
 		}
 
 		delete settings;
@@ -2612,7 +2441,7 @@ bool OutfitStudioFrame::SaveProjectAs() {
 		wxString sssName = wxString::FromUTF8(outName);
 
 		XRCCTRL(dlg, "sssName", wxTextCtrl)->SetValue(sssName);
-		XRCCTRL(dlg, "sssSliderSetFile", wxFilePickerCtrl)->SetInitialDirectory(wxString::FromUTF8(GetProjectPath()) + "/SliderSets");
+		XRCCTRL(dlg, "sssSliderSetFile", wxFilePickerCtrl)->SetInitialDirectory(wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/SliderSets");
 
 		if (!project->mFileName.empty())
 			XRCCTRL(dlg, "sssSliderSetFile", wxFilePickerCtrl)->SetPath(project->mFileName);
@@ -2722,7 +2551,7 @@ bool OutfitStudioFrame::SaveProjectAs() {
 
 	wxFileName relativeFolder(strDataDir);
 	if (!relativeFolder.IsRelative()) {
-		wxString dataFolder(wxString::Format("%s/%s", wxString::FromUTF8(GetProjectPath()), "ShapeData"));
+		wxString dataFolder(wxString::Format("%s/%s", wxString::FromUTF8(ProjectUtil::GetProjectPath()), "ShapeData"));
 		relativeFolder.MakeRelativeTo(dataFolder);
 		strDataDir = relativeFolder.GetFullPath();
 	}
@@ -3527,6 +3356,46 @@ void OutfitStudioFrame::ClearSelected(NiShape* shape) {
 	selectedItems.erase(std::remove_if(selectedItems.begin(), selectedItems.end(), [&](ShapeItemData* i) { return i->GetShape() == shape; }), selectedItems.end());
 }
 
+bool OutfitStudioFrame::GetShapeReferenceSource(NiShape* shape, std::string& outProjectFile, std::string& outProjectName) {
+	outProjectFile.clear();
+	outProjectName.clear();
+
+	if (!shape || !outfitRoot.IsOk())
+		return false;
+
+	wxTreeItemIdValue cookie;
+	wxTreeItemId child = outfitShapes->GetFirstChild(outfitRoot, cookie);
+	while (child.IsOk()) {
+		auto* itemData = dynamic_cast<ShapeItemData*>(outfitShapes->GetItemData(child));
+		if (itemData && itemData->GetShape() == shape) {
+			outProjectFile = itemData->GetRefProjectFile();
+			outProjectName = itemData->GetRefProjectName();
+			return true;
+		}
+
+		child = outfitShapes->GetNextChild(outfitRoot, cookie);
+	}
+
+	return false;
+}
+
+void OutfitStudioFrame::SetShapeReferenceSource(NiShape* shape, const std::string& projectFile, const std::string& projectName) {
+	if (!shape || !outfitRoot.IsOk())
+		return;
+
+	wxTreeItemIdValue cookie;
+	wxTreeItemId child = outfitShapes->GetFirstChild(outfitRoot, cookie);
+	while (child.IsOk()) {
+		auto* itemData = dynamic_cast<ShapeItemData*>(outfitShapes->GetItemData(child));
+		if (itemData && itemData->GetShape() == shape) {
+			itemData->SetRefSource(projectFile, projectName);
+			return;
+		}
+
+		child = outfitShapes->GetNextChild(outfitRoot, cookie);
+	}
+}
+
 std::string OutfitStudioFrame::GetActiveBone() {
 	return activeBone;
 }
@@ -4220,7 +4089,7 @@ void OutfitStudioFrame::OnNewProject(wxCommandEvent& WXUNUSED(event)) {
 		auto tmpl = find_if(refTemplates.begin(), refTemplates.end(), [&tmplName](const RefTemplate& rt) { return rt.GetName() == tmplName; });
 		if (tmpl != refTemplates.end()) {
 			if (wxFileName(wxString::FromUTF8(tmpl->GetSource())).IsRelative())
-				error = project->LoadReferenceTemplate(GetProjectPath() + PathSepStr + tmpl->GetSource(), tmpl->GetSetName(), tmpl->GetShape(), tmpl->GetLoadAll());
+				error = project->LoadReferenceTemplate(ProjectUtil::GetProjectPath() + PathSepStr + tmpl->GetSource(), tmpl->GetSetName(), tmpl->GetShape(), tmpl->GetLoadAll());
 			else
 				error = project->LoadReferenceTemplate(tmpl->GetSource(), tmpl->GetSetName(), tmpl->GetShape(), tmpl->GetLoadAll());
 		}
@@ -4298,7 +4167,7 @@ void OutfitStudioFrame::OnNewProject(wxCommandEvent& WXUNUSED(event)) {
 void OutfitStudioFrame::OnLoadProject(wxCommandEvent& WXUNUSED(event)) {
 	wxFileDialog loadProjectDialog(this,
 								   _("Select a slider set to load"),
-								   wxString::FromUTF8(GetProjectPath()) + "/SliderSets",
+								   wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/SliderSets",
 								   wxEmptyString,
 								   "Slider Set Files (*.osp;*.xml)|*.osp;*.xml",
 								   wxFD_FILE_MUST_EXIST);
@@ -4315,7 +4184,7 @@ void OutfitStudioFrame::OnLoadProject(wxCommandEvent& WXUNUSED(event)) {
 void OutfitStudioFrame::OnAddProject(wxCommandEvent& WXUNUSED(event)) {
 	wxFileDialog addProjectDialog(this,
 								  _("Select a slider set to add"),
-								  wxString::FromUTF8(GetProjectPath()) + "/SliderSets",
+								  wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/SliderSets",
 								  wxEmptyString,
 								  "Slider Set Files (*.osp;*.xml)|*.osp;*.xml",
 								  wxFD_FILE_MUST_EXIST);
@@ -4376,7 +4245,7 @@ void OutfitStudioFrame::OnLoadReference(wxCommandEvent& WXUNUSED(event)) {
 		auto tmpl = find_if(refTemplates.begin(), refTemplates.end(), [&tmplName](const RefTemplate& rt) { return rt.GetName() == tmplName; });
 		if (tmpl != refTemplates.end()) {
 			if (wxFileName(wxString::FromUTF8(tmpl->GetSource())).IsRelative())
-				error = project->LoadReferenceTemplate(GetProjectPath() + PathSepStr + tmpl->GetSource(),
+				error = project->LoadReferenceTemplate(ProjectUtil::GetProjectPath() + PathSepStr + tmpl->GetSource(),
 													   tmpl->GetSetName(),
 													   tmpl->GetShape(),
 													   tmpl->GetLoadAll(),
@@ -4582,14 +4451,14 @@ void OutfitStudioFrame::ResetProject() {
 void OutfitStudioFrame::UpdateReferenceTemplates() {
 	refTemplates.clear();
 
-	std::string fileName = GetProjectPath() + "/RefTemplates.xml";
+	std::string fileName = ProjectUtil::GetProjectPath() + "/RefTemplates.xml";
 	if (wxFileName::IsFileReadable(fileName)) {
 		RefTemplateFile refTemplateFile(fileName);
 		refTemplateFile.GetAll(refTemplates);
 	}
 
 	RefTemplateCollection refTemplateCol;
-	refTemplateCol.Load(GetProjectPath() + "/RefTemplates");
+	refTemplateCol.Load(ProjectUtil::GetProjectPath() + "/RefTemplates");
 	refTemplateCol.GetAll(refTemplates);
 }
 
@@ -4681,6 +4550,8 @@ void OutfitStudioFrame::RefreshGUIFromProj(bool render, bool stashMasks) {
 				ShapeItemState prevState{};
 				prevState.shapeName = outfitShapes->GetItemText(child).ToUTF8().data();
 				prevState.state = outfitShapes->GetItemState(child);
+				prevState.refProjectFile = itemData->GetRefProjectFile();
+				prevState.refProjectName = itemData->GetRefProjectName();
 
 				if (outfitShapes->IsSelected(child))
 					prevState.selected = true;
@@ -4714,6 +4585,9 @@ void OutfitStudioFrame::RefreshGUIFromProj(bool render, bool stashMasks) {
 		outfitShapes->SetItemState(item, 0);
 		outfitShapes->SetItemData(item, itemData);
 
+		if (project->IsBaseShape(shape))
+			itemData->SetRefSource(project->GetReferenceProjectFile(), project->GetReferenceProjectName());
+
 		if (project->IsBaseShape(shape)) {
 			outfitShapes->SetItemBold(item);
 			outfitShapes->SetItemTextColour(item, wxColour(0, 255, 0));
@@ -4723,6 +4597,7 @@ void OutfitStudioFrame::RefreshGUIFromProj(bool render, bool stashMasks) {
 
 		if (it != prevStates.end()) {
 			outfitShapes->SetItemState(item, it->state);
+			itemData->SetRefSource(it->refProjectFile, it->refProjectName);
 
 			if (it->selected) {
 				outfitShapes->SelectItem(item);
@@ -4851,7 +4726,7 @@ void OutfitStudioFrame::UpdateAnimationGUI() {
 	auto cPoseName = (wxComboBox*)FindWindowByName("cPoseName");
 	cPoseName->Clear();
 
-	std::string poseDataPath = GetProjectPath() + "/PoseData";
+	std::string poseDataPath = ProjectUtil::GetProjectPath() + "/PoseData";
 	poseDataCollection.LoadData(poseDataPath);
 
 	// Additionally load community-supplied ScreenArcherMenu/SAF poses if the
@@ -4876,7 +4751,7 @@ void OutfitStudioFrame::UpdateAnimationGUI() {
 	}
 
 	if (!samRelDir.IsEmpty()) {
-		wxString gameDataPath = wxGetApp().GetGameDataPath(samGame);
+		wxString gameDataPath = GameUtil::GetGameDataPath(samGame);
 		if (!gameDataPath.IsEmpty()) {
 			if (!gameDataPath.EndsWith(PathSepChar))
 				gameDataPath.Append(PathSepChar);
@@ -8640,7 +8515,7 @@ void OutfitStudioFrame::OnLoadPreset(wxCommandEvent& WXUNUSED(event)) {
 
 	CloseBrushSettings();
 
-	presets.LoadPresets(GetProjectPath() + "/SliderPresets", choice, names, true);
+	presets.LoadPresets(ProjectUtil::GetProjectPath() + "/SliderPresets", choice, names, true);
 	presets.GetPresetNames(names);
 
 	if (wxXmlResource::Get()->LoadDialog(&dlg, this, "dlgChoosePreset")) {
@@ -8709,7 +8584,7 @@ void OutfitStudioFrame::OnSavePreset(wxCommandEvent& WXUNUSED(event)) {
 	CloseBrushSettings();
 
 	SliderSetGroupCollection groupCollection;
-	groupCollection.LoadGroups(GetProjectPath() + "/SliderGroups");
+	groupCollection.LoadGroups(ProjectUtil::GetProjectPath() + "/SliderGroups");
 
 	std::set<std::string> allGroups;
 	groupCollection.GetAllGroups(allGroups);
@@ -13562,7 +13437,7 @@ void OutfitStudioFrame::OnSavePose(wxCommandEvent& WXUNUSED(event)) {
 		cPoseName->SetSelection(poseSel);
 	}
 
-	wxString dirName = wxString::FromUTF8(GetProjectPath()) + "/PoseData";
+	wxString dirName = wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/PoseData";
 	wxFileName::Mkdir(dirName, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
 	wxString fileName = dirName + "/" + wxString::FromUTF8(PoseDataCollection::SanitizeFileStem(poseData->name).c_str()) + ".xml";
@@ -13594,7 +13469,7 @@ void OutfitStudioFrame::OnDeletePose(wxCommandEvent& WXUNUSED(event)) {
 		if (result != wxYES)
 			return;
 
-		wxString fileName = wxString::FromUTF8(GetProjectPath()) + "/PoseData/" + wxString::FromUTF8(PoseDataCollection::SanitizeFileStem(poseData->name).c_str()) + ".xml";
+		wxString fileName = wxString::FromUTF8(ProjectUtil::GetProjectPath()) + "/PoseData/" + wxString::FromUTF8(PoseDataCollection::SanitizeFileStem(poseData->name).c_str()) + ".xml";
 		wxRemoveFile(fileName);
 
 		cPoseName->Delete(poseSel);

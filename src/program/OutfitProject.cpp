@@ -17,6 +17,7 @@ See the included LICENSE file
 #include "ObjImportDialog.h"
 #include "../utils/PlatformUtil.h"
 #include "../utils/StringStuff.h"
+#include "../utils/ProjectUtil.h"
 #include "NifUtil.hpp"
 
 #include "FSEngine/FSEngine.h"
@@ -362,7 +363,7 @@ std::string OutfitProject::Save(const wxFileName& sliderSetFile,
 	}
 
 	if (ssFileName.IsRelative())
-		ssFileName.MakeAbsolute(wxString::FromUTF8(GetProjectPath()));
+		ssFileName.MakeAbsolute(wxString::FromUTF8(ProjectUtil::GetProjectPath()));
 
 	mFileName = ssFileName.GetFullPath();
 	mOutfitName = wxString::FromUTF8(outfit);
@@ -380,7 +381,7 @@ std::string OutfitProject::Save(const wxFileName& sliderSetFile,
 
 	auto shapes = workNif.GetShapes();
 
-	wxString folder(wxString::Format("%s/%s/%s", wxString::FromUTF8(GetProjectPath()), "ShapeData", strDataDir));
+	wxString folder(wxString::Format("%s/%s/%s", wxString::FromUTF8(ProjectUtil::GetProjectPath()), "ShapeData", strDataDir));
 	wxFileName::Mkdir(folder, wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL);
 
 	int prog = 5;
@@ -501,7 +502,7 @@ std::string OutfitProject::Save(const wxFileName& sliderSetFile,
 		}
 	}
 
-	std::string saveDataPath = GetProjectPath() + PathSepStr + "ShapeData" + PathSepStr + mDataDir.ToUTF8().data();
+	std::string saveDataPath = ProjectUtil::GetProjectPath() + PathSepStr + "ShapeData" + PathSepStr + mDataDir.ToUTF8().data();
 	SaveSliderData(saveDataPath + PathSepStr + osdFileName, copyRef);
 
 	prog = 60;
@@ -625,7 +626,22 @@ bool OutfitProject::SaveSliderData(const std::string& fileName, bool copyRef) {
 	return true;
 }
 
+bool OutfitProject::ShapeSliderDataIsLocalOnly(const std::string& shapeName) {
+	std::string target = ShapeToTarget(shapeName);
+	for (size_t i = 0; i < activeSet.size(); i++) {
+		for (auto& dataFile : activeSet[i].dataFiles) {
+			if (dataFile.targetName == target && !dataFile.bLocal)
+				return false;
+		}
+	}
+
+	return true;
+}
+
 void OutfitProject::SetBaseShape(NiShape* shape, const bool moveData) {
+	if (owner && baseShape && baseShape != shape && (!mRefProjectFile.empty() || !mRefProjectName.empty()))
+		owner->SetShapeReferenceSource(baseShape, mRefProjectFile, mRefProjectName);
+
 	if (moveData) {
 		if (baseShape != shape) {
 			// Copy data from base shape to regular shape
@@ -661,8 +677,6 @@ void OutfitProject::SetBaseShape(NiShape* shape, const bool moveData) {
 						targetData = target + sliderName;
 						activeSet[i].AddDataFile(target, target + sliderName, target + sliderName);
 					}
-					else
-						activeSet[i].SetLocalData(targetData);
 
 					std::unordered_map<uint16_t, Vector3> diff;
 					morpher.GetRawResultDiff(shapeName, sliderName, diff);
@@ -679,8 +693,26 @@ void OutfitProject::SetBaseShape(NiShape* shape, const bool moveData) {
 	baseShape = shape;
 
 	if (shape) {
-		mRefProjectFile.clear();
-		mRefProjectName.clear();
+		std::string refProjectFile;
+		std::string refProjectName;
+		if (owner && owner->GetShapeReferenceSource(shape, refProjectFile, refProjectName)) {
+			mRefProjectFile = refProjectFile;
+			mRefProjectName = refProjectName;
+		}
+		else {
+			mRefProjectFile.clear();
+			mRefProjectName.clear();
+		}
+
+		if (ShapeSliderDataIsLocalOnly(shape->name.get())) {
+			mRefProjectFile.clear();
+			mRefProjectName.clear();
+			if (owner)
+				owner->SetShapeReferenceSource(shape, "", "");
+		}
+		else if (owner)
+			owner->SetShapeReferenceSource(shape, mRefProjectFile, mRefProjectName);
+
 		mRefShapeName = shape->name.get();
 	}
 	else {
@@ -3102,7 +3134,7 @@ int OutfitProject::LoadReference(const std::string& fileName, const std::string&
 		return 1;
 	}
 
-	refSet.SetBaseDataPath(GetProjectPath() + PathSepStr + "ShapeData");
+	refSet.SetBaseDataPath(ProjectUtil::GetProjectPath() + PathSepStr + "ShapeData");
 	std::string refFile = refSet.GetInputFileName();
 
 	std::fstream file;
@@ -3150,7 +3182,7 @@ int OutfitProject::LoadReference(const std::string& fileName, const std::string&
 
 	ResolveTargetConflictsForIncomingShapes({{shape, refSet.ShapeToTarget(shape)}});
 	sset.GetSet(setName, activeSet, appendNewSliders);
-	activeSet.SetBaseDataPath(GetProjectPath() + PathSepStr + "ShapeData");
+	activeSet.SetBaseDataPath(ProjectUtil::GetProjectPath() + PathSepStr + "ShapeData");
 
 	std::vector<std::string> deletedShapes;
 
@@ -3211,9 +3243,9 @@ int OutfitProject::LoadReference(const std::string& fileName, const std::string&
 	{
 		wxFileName refFileName(wxString::FromUTF8(fileName));
 		if (refFileName.IsRelative())
-			refFileName.MakeAbsolute(wxString::FromUTF8(GetProjectPath()));
+			refFileName.MakeAbsolute(wxString::FromUTF8(ProjectUtil::GetProjectPath()));
 
-		if (refFileName.MakeRelativeTo(wxString::FromUTF8(GetProjectPath())))
+		if (refFileName.MakeRelativeTo(wxString::FromUTF8(ProjectUtil::GetProjectPath())))
 			mRefProjectFile = refFileName.GetFullPath().ToUTF8().data();
 		else
 			mRefProjectFile = fileName;
@@ -3249,7 +3281,7 @@ int OutfitProject::LoadFromSliderSet(const std::string& fileName, const std::str
 		return 3;
 	}
 
-	activeSet.SetBaseDataPath(GetProjectPath() + PathSepStr + "ShapeData");
+	activeSet.SetBaseDataPath(ProjectUtil::GetProjectPath() + PathSepStr + "ShapeData");
 
 	std::string inputNif = activeSet.GetInputFileName();
 
@@ -3365,7 +3397,7 @@ int OutfitProject::AddFromSliderSet(const std::string& fileName, const std::stri
 	if (!addSet.GetReferenceShapeName().empty())
 		mRefShapeName = addSet.GetReferenceShapeName();
 
-	addSet.SetBaseDataPath(GetProjectPath() + PathSepStr + "ShapeData");
+	addSet.SetBaseDataPath(ProjectUtil::GetProjectPath() + PathSepStr + "ShapeData");
 	std::string inputNif = addSet.GetInputFileName();
 
 	std::map<std::string, std::string> renamedShapes;
@@ -3442,9 +3474,9 @@ int OutfitProject::AddFromSliderSet(const std::string& fileName, const std::stri
 	if (baseShape && !hadBaseShape && mRefProjectFile.empty() && mRefProjectName.empty() && mRefShapeName.empty()) {
 		wxFileName refFileName(wxString::FromUTF8(fileName));
 		if (refFileName.IsRelative())
-			refFileName.MakeAbsolute(wxString::FromUTF8(GetProjectPath()));
+			refFileName.MakeAbsolute(wxString::FromUTF8(ProjectUtil::GetProjectPath()));
 
-		if (refFileName.MakeRelativeTo(wxString::FromUTF8(GetProjectPath())))
+		if (refFileName.MakeRelativeTo(wxString::FromUTF8(ProjectUtil::GetProjectPath())))
 			mRefProjectFile = refFileName.GetFullPath().ToUTF8().data();
 		else
 			mRefProjectFile = fileName;

@@ -73,6 +73,8 @@ struct MergeCheckErrors;
 
 class ShapeItemData : public wxTreeItemData {
 	nifly::NiShape* shape = nullptr;
+	std::string refProjectFile;
+	std::string refProjectName;
 
 public:
 	ShapeItemData(nifly::NiShape* inShape) { shape = inShape; }
@@ -80,12 +82,22 @@ public:
 	nifly::NiShape* GetShape() { return shape; }
 
 	void SetShape(nifly::NiShape* newShape) { shape = newShape; }
+
+	const std::string& GetRefProjectFile() const { return refProjectFile; }
+	const std::string& GetRefProjectName() const { return refProjectName; }
+
+	void SetRefSource(const std::string& projectFile, const std::string& projectName) {
+		refProjectFile = projectFile;
+		refProjectName = projectName;
+	}
 };
 
 struct ShapeItemState {
 	std::string shapeName;
 	int state = 0;
 	bool selected = false;
+	std::string refProjectFile;
+	std::string refProjectName;
 };
 
 class SegmentItemData : public wxTreeItemData {
@@ -874,8 +886,6 @@ static const wxCmdLineEntryDesc g_cmdLineDesc[] = {{wxCMD_LINE_OPTION, "proj", "
 												   {wxCMD_LINE_PARAM, nullptr, nullptr, "Files", wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_PARAM_MULTIPLE},
 												   wxCMD_LINE_DESC_END};
 
-std::string GetProjectPath();
-
 class OutfitStudio : public wxApp {
 public:
 	virtual ~OutfitStudio();
@@ -891,15 +901,10 @@ public:
 
 	void CharHook(wxKeyEvent& event);
 
-	wxString GetGameDataPath(TargetGame targ);
-
 	void InitLanguage();
 
 	bool SetDefaultConfig();
 	bool ShowSetup();
-
-	void InitArchives();
-	void GetArchiveFiles(std::vector<std::string>& outList);
 
 	TargetGame targetGame = TargetGame::FO3;
 
@@ -1110,6 +1115,8 @@ public:
 	void UpdateShapeReference(nifly::NiShape* shape, nifly::NiShape* newShape);
 	std::vector<ShapeItemData*>& GetSelectedItems();
 	void ClearSelected(nifly::NiShape* shape);
+	bool GetShapeReferenceSource(nifly::NiShape* shape, std::string& outProjectFile, std::string& outProjectName);
+	void SetShapeReferenceSource(nifly::NiShape* shape, const std::string& projectFile, const std::string& projectName);
 	std::string GetActiveBone();
 
 	bool CheckEditableState();

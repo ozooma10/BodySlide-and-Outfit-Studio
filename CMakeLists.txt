@@ -271,6 +271,9 @@ set(BSOS_COMMON_SOURCES
 	src/utils/ConfigurationManager.cpp
 	src/utils/Log.cpp
 	src/utils/PlatformUtil.cpp
+	src/utils/SettingsDialogShared.cpp
+	src/utils/ProjectUtil.cpp
+	src/utils/GameUtil.cpp
 	src/utils/StackTrace.cpp
 	src/utils/StringStuff.cpp
 	src/utils/WxBuildConfigCheck.cpp
@@ -377,11 +380,13 @@ if(BSOS_BUILD_TESTS)
 		tests/HkxFileTest.cpp
 		tests/SFMaterialDatabaseTest.cpp
 		tests/SFMaterialFileTest.cpp
+		tests/SFMorphFileTest.cpp
 		tests/SFResourceHashTest.cpp
 		src/files/HkxFile.cpp
 		src/files/SFMaterialDatabase.cpp
 		src/files/SFMaterialFile.cpp
 		src/files/SFMaterialGraph.cpp
+		src/files/SFMorphFile.cpp
 		src/files/SFResourceHash.cpp
 		src/utils/PlatformUtil.cpp
 		src/utils/StringStuff.cpp
@@ -389,6 +394,8 @@ if(BSOS_BUILD_TESTS)
 	target_include_directories(BSOSTests PRIVATE
 		${CMAKE_CURRENT_SOURCE_DIR}/src
 		${CMAKE_CURRENT_SOURCE_DIR}/lib/nlohmannjson/include
+		${CMAKE_CURRENT_SOURCE_DIR}/lib/nifly/include
+		${CMAKE_CURRENT_SOURCE_DIR}/lib/nifly/external
 	)
 	target_compile_definitions(BSOSTests PRIVATE ${BSOS_PLATFORM_DEFINITIONS})
 	target_link_libraries(BSOSTests PRIVATE Catch2::Catch2WithMain)
