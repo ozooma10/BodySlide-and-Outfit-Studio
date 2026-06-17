@@ -879,16 +879,43 @@ NiShape* OutfitProject::CreateNifShapeFromData(
 	// and swap in the imported geometry. Stale data carried from the template is cleared and
 	// regenerated later (weights via CopyBoneWeights; meshlets/cull via the meshlet tool).
 	if (workNif.GetHeader().GetVersion().IsSF() && baseShape && baseShape->HasType<BSGeometry>()) {
-		NiShape* shape = workNif.CloneShape(baseShape, shapeName);
+		// Block-level duplicate (NOT NifFile::CloneShape): CloneShape re-clones and reparents the
+		// entire skeleton via its cloneNodes recursion, which hangs when the source skeleton already
+		// lives in this same nif (the reference body). Here we clone only the BSGeometry block and
+		// deep-clone its child blocks (skin instance + bone data + shader) via CloneChildren, which
+		// repoints the clone's child refs at the copies. Bone-node references are NiPtrs (boneRefs /
+		// targetRef), not child refs, so they keep pointing at the existing skeleton nodes — exactly
+		// what we want (reuse the bones, no node-tree cloning).
+		auto destShapeS = baseShape->Clone();
+		NiShape* shape = destShapeS.get();
+		shape->name.get() = shapeName;
+		int destId = workNif.GetHeader().AddBlock(std::move(destShapeS));
+
+		// Parent the clone under the reference shape's parent (fall back to the root node).
+		if (auto* parentNode = workNif.GetParentNode(baseShape))
+			parentNode->childRefs.AddBlockRef(destId);
+		else if (auto* rootNode = workNif.GetRootNode())
+			rootNode->childRefs.AddBlockRef(destId);
+
+		wxLogMessage("OSF-SF: cloned BSGeometry block '%s' (id %d), base verts=%d", shapeName, destId, (int)baseShape->GetNumVertices());
+
+		// Deep-clone child blocks (skin instance/bone data/shader/...) and repoint the clone's child
+		// refs; leaves bone-node ptrs pointing at the existing nodes.
+		workNif.CloneChildren(shape, &workNif);
+		wxLogMessage("OSF-SF: CloneChildren done; clone verts=%d", (int)shape->GetNumVertices());
+
 		if (shape) {
-			if (v)
+			if (v) {
 				workNif.SetVertsForShape(shape, *v);
+				wxLogMessage("OSF-SF: SetVerts %zu -> clone now %d verts", v->size(), (int)shape->GetNumVertices());
+			}
 			if (t)
 				shape->SetTriangles(*t);
 			if (uv)
 				workNif.SetUvsForShape(shape, *uv);
 			if (norms)
 				workNif.SetNormalsForShape(shape, *norms);
+			wxLogMessage("OSF-SF: geometry swapped; verts=%d tris=%d", (int)shape->GetNumVertices(), (int)shape->GetNumTriangles());
 
 			if (auto* bsgeo = dynamic_cast<BSGeometry*>(shape)) {
 				if (auto* md = dynamic_cast<BSGeometryMeshData*>(bsgeo->GetGeomData())) {
@@ -903,8 +930,11 @@ NiShape* OutfitProject::CreateNifShapeFromData(
 				bsgeo->ReleaseMesh();
 			}
 
+			wxLogMessage("OSF-SF: cleared meshlets/weights/cull + mesh-name");
 			shape->UpdateBounds();
+			wxLogMessage("OSF-SF: UpdateBounds done");
 			SetTextures(shape);
+			wxLogMessage("OSF-SF: SetTextures done; shape ready");
 		}
 		return shape;
 	}
@@ -6838,16 +6868,20 @@ int OutfitProject::ImportOBJ(const std::string& fileName, const std::string& sha
 			uint32_t triCountNew = newShape->GetNumTriangles();
 
 			if (vertCountNew < vertCount || triCountNew < triCount) {
-				wxMessageBox(wxString::Format(_("The vertex or triangle limit for '%s' was exceeded.\nRemaining data was dropped.\n\nVertices (current/max): %zu/%zu\nTriangles "
-												"(current/max): %zu/%zu"),
-											  useShapeName,
-											  vertCount,
-											  vertexLimit,
-											  triCount,
-											  triLimit),
-							 _("OBJ Error"),
-							 wxICON_WARNING,
-							 owner);
+				wxLogWarning("The vertex or triangle limit for '%s' was exceeded. Remaining data was dropped. "
+							 "Vertices (current/max): %zu/%zu Triangles (current/max): %zu/%zu",
+							 useShapeName, vertCount, vertexLimit, triCount, triLimit);
+				if (!headless)
+					wxMessageBox(wxString::Format(_("The vertex or triangle limit for '%s' was exceeded.\nRemaining data was dropped.\n\nVertices (current/max): %zu/%zu\nTriangles "
+													"(current/max): %zu/%zu"),
+												  useShapeName,
+												  vertCount,
+												  vertexLimit,
+												  triCount,
+												  triLimit),
+								 _("OBJ Error"),
+								 wxICON_WARNING,
+								 owner);
 			}
 
 			if (copyBaseSkinTrans)
