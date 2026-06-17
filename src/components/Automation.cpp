@@ -496,6 +496,7 @@ int AutomationScript::Load(const std::string& fileName) {
 				if (efp)
 					step.exportFilePath = efp;
 				step.exportWithRef = GetChildBool(stepElem, "WithRef", true);
+				step.exportExternalGeom = GetChildBool(stepElem, "ExternalGeom", false);
 				step.exportUseOriginalPath = GetChildBool(stepElem, "UseOriginalPath", false);
 				const char* epre = GetChildText(stepElem, "Prefix");
 				if (epre)
@@ -868,6 +869,7 @@ int AutomationScript::Save(const std::string& fileName) {
 			case AutomationStepType::ExportFile:
 				SetChildText(doc, stepElem, "FilePath", step.exportFilePath);
 				SetChildBool(doc, stepElem, "WithRef", step.exportWithRef, true);
+				SetChildBool(doc, stepElem, "ExternalGeom", step.exportExternalGeom, false);
 				SetChildBool(doc, stepElem, "UseOriginalPath", step.exportUseOriginalPath, false);
 				SetChildText(doc, stepElem, "Prefix", step.exportPrefix);
 				SetChildText(doc, stepElem, "Suffix", step.exportSuffix);

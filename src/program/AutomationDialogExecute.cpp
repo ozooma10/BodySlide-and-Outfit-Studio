@@ -25,6 +25,7 @@ See the included LICENSE file
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <regex>
 #include <string>
 #include <unordered_map>
@@ -1452,7 +1453,7 @@ int AutomationDialog::ExecuteStepImportFile(const AutomationStep& step) {
 				if (ext == "nif")
 					err = project->ImportNIF(fullPath, false);
 				else if (ext == "obj")
-					err = project->ImportOBJ(fullPath);
+					err = project->ImportOBJ(fullPath, "", nullptr, headlessMode);
 				else if (ext == "fbx")
 #ifdef USE_FBXSDK
 					err = project->ImportFBX(fullPath);
@@ -1479,7 +1480,7 @@ int AutomationDialog::ExecuteStepImportFile(const AutomationStep& step) {
 		if (ext == "nif")
 			err = project->ImportNIF(importFilePathStd, false);
 		else if (ext == "obj")
-			err = project->ImportOBJ(importFilePathStd);
+			err = project->ImportOBJ(importFilePathStd, "", nullptr, headlessMode);
 		else if (ext == "fbx")
 #ifdef USE_FBXSDK
 			err = project->ImportFBX(importFilePathStd);
@@ -1591,7 +1592,10 @@ int AutomationDialog::ExecuteStepExportFile(const AutomationStep& step) {
 					shapeMeshes.push_back(m);
 			}
 		}
-		int err = project->ExportNIF(exportPath, shapeMeshes, step.exportWithRef);
+		std::optional<bool> useInternalGeom = std::nullopt;
+		if (step.exportExternalGeom)
+			useInternalGeom = false; // force external .mesh geometry (Starfield)
+		int err = project->ExportNIF(exportPath, shapeMeshes, step.exportWithRef, useInternalGeom);
 		if (err) {
 			wxLogError("Automation: ExportNIF failed with error %d.", err);
 			return err;

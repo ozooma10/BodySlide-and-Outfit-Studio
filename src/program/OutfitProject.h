@@ -489,7 +489,7 @@ public:
 	// Save external .mesh files for Starfield BSGeometry shapes alongside the NIF.
 	bool SaveExternalMeshes(nifly::NifFile& nif, const std::string& nifFileName);
 
-	int ImportOBJ(const std::string& fileName, const std::string& shapeName = "", nifly::NiShape* mergeShape = nullptr);
+	int ImportOBJ(const std::string& fileName, const std::string& shapeName = "", nifly::NiShape* mergeShape = nullptr, bool headless = false);
 	int ExportOBJ(const std::string& fileName,
 				  const std::vector<nifly::NiShape*>& shapes,
 				  bool transToGlobal,

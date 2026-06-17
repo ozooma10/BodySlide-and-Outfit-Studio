@@ -258,6 +258,7 @@ struct AutomationStep {
 	// ExportFile params
 	std::string exportFilePath;
 	bool exportWithRef = true;
+	bool exportExternalGeom = false; // Starfield: force external .mesh geometry on NIF export (default: preserve source)
 	bool exportUseOriginalPath = false; // Use original file path from batch mode
 	std::string exportPrefix;
 	std::string exportSuffix;
