@@ -853,6 +853,30 @@ int AutomationDialog::ExecuteStepCopyBoneWeights(const AutomationStep& step) {
 	if (!usp.usss.empty())
 		outfitStudio->ActiveShapesUpdated(&usp, false);
 
+	// The target rides the SAME (vanilla) skeleton as the reference, so the correct skin->bone bind
+	// transforms ARE the reference's. RecalcXFormSkinToBone (run during AddShapeBone) approximates
+	// them from the shape's global-to-skin, which is unreliable for a headless-imported BSGeometry and
+	// produces contorted in-game deformation. Override each target bone's transform with the reference's
+	// loaded-from-nif value, by bone name.
+	{
+		std::string baseName = project->GetBaseShape()->name.get();
+		for (auto* shape : shapes) {
+			if (project->IsBaseShape(shape))
+				continue;
+			std::string sName = shape->name.get();
+			int copied = 0;
+			for (auto& bone : workAnim.shapeBones[sName]) {
+				nifly::MatTransform xf;
+				if (workAnim.GetXFormSkinToBone(baseName, bone, xf)) {
+					workAnim.SetXFormSkinToBone(sName, bone, xf);
+					copied++;
+				}
+			}
+			wxLogMessage("OSF-SF cbw: copied %d skin->bone transforms from reference '%s' to '%s'",
+						 copied, baseName, sName);
+		}
+	}
+
 	project->morpher.ClearProximityCache();
 	workAnim.CleanupBones();
 	outfitStudio->UpdateAnimationGUI();
