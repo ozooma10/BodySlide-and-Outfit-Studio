@@ -780,6 +780,7 @@ int AutomationDialog::ExecuteStepCopyBoneWeights(const AutomationStep& step) {
 	std::sort(baseBones.begin(), baseBones.end());
 
 	int nCopyBones = static_cast<int>(baseBones.size());
+	wxLogMessage("OSF-SF cbw: reference '%s' baseBones=%d", project->GetBaseShape()->name.get(), nCopyBones);
 	std::vector<std::string> lockedBones;
 	bool bSpreadWeight = false;
 

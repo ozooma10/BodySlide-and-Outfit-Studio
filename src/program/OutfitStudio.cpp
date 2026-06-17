@@ -3248,15 +3248,16 @@ void OutfitStudioFrame::ActiveShapesUpdated(UndoStateProject* usp, bool bIsUndo)
 	else {
 		if (usp->undoType == UndoType::Weight) {
 			for (auto& uss : usp->usss) {
+				// Commit weights to workAnim keyed by shape name, independent of a GL render mesh.
+				// Headless automation has no glView meshes, so the old `if (!GetMesh) continue;`
+				// silently dropped CopyBoneWeights output and SF bodies exported with zero weights.
 				Mesh* m = glView->GetMesh(uss.shapeName);
-				if (!m)
-					continue;
 
 				for (auto& bw : uss.boneWeights) {
 					if (bw.weights.empty())
 						continue;
-					project->GetWorkAnim()->AddShapeBone(m->shapeName, bw.boneName);
-					auto weights = project->GetWorkAnim()->GetWeightsPtr(m->shapeName, bw.boneName);
+					project->GetWorkAnim()->AddShapeBone(uss.shapeName, bw.boneName);
+					auto weights = project->GetWorkAnim()->GetWeightsPtr(uss.shapeName, bw.boneName);
 					if (!weights)
 						continue;
 					for (auto& p : bw.weights) {
@@ -3267,7 +3268,7 @@ void OutfitStudioFrame::ActiveShapesUpdated(UndoStateProject* usp, bool bIsUndo)
 							(*weights)[p.first] = val;
 					}
 				}
-				if (project->bPose) {
+				if (m && project->bPose) {
 					auto shape = project->GetWorkNif()->FindBlockByName<NiShape>(m->shapeName);
 					std::vector<Vector3> verts;
 					project->GetLiveVerts(shape, verts);

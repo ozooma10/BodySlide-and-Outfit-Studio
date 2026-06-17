@@ -616,7 +616,11 @@ void AnimInfo::WriteToNif(NifFile* nif, const std::string& shapeException) {
 		if (!shape)
 			continue;
 
-		bool isBSShape = shape->HasType<BSTriShape>();
+		// Starfield BSGeometry also stores per-vertex weights (in BSGeometryMeshData::skinWeights),
+		// so it needs the same accumulate -> ClearShapeVertWeights -> SetShapeVertWeights path as
+		// BSTriShape. Without this, BSGeometry exports with zero skin weights and the game crashes
+		// binding the body to the actor skeleton.
+		bool isBSShape = shape->HasType<BSTriShape>() || shape->HasType<BSGeometry>();
 
 		std::unordered_map<uint16_t, VertexBoneWeights> vertWeights;
 		for (auto& boneName : shapeBoneList.second) {
@@ -640,10 +644,29 @@ void AnimInfo::WriteToNif(NifFile* nif, const std::string& shapeException) {
 		}
 
 		if (isBSShape) {
+			wxLogMessage("OSF-SF weights: shape '%s' bones=%zu accumulated weightedVerts=%zu",
+						 shapeBoneList.first, shapeBoneList.second.size(), vertWeights.size());
 			nif->ClearShapeVertWeights(shapeBoneList.first);
 
 			for (auto& vid : vertWeights)
 				nif->SetShapeVertWeights(shapeBoneList.first, vid.first, vid.second.boneIds, vid.second.weights);
+
+			// Starfield BSGeometry resolves weight bone indices through the SkinAttach name list
+			// (boneRefs are None). Rewrite it so the name order matches the bone indices we just
+			// wrote (GetShapeBoneIndex order) and the per-bone transforms in BSSkin::BoneData.
+			if (isSF && shape->HasType<BSGeometry>()) {
+				std::vector<std::string> orderedBones;
+				for (auto& boneName : shapeBoneList.second) {
+					int bid = GetShapeBoneIndex(shapeBoneList.first, boneName);
+					if (bid < 0)
+						continue;
+					if (bid >= static_cast<int>(orderedBones.size()))
+						orderedBones.resize(bid + 1);
+					orderedBones[bid] = boneName;
+				}
+				nif->SetShapeSkinAttachBones(shape, orderedBones);
+				wxLogMessage("OSF-SF skinattach: wrote %zu ordered bone names for '%s'", orderedBones.size(), shapeBoneList.first);
+			}
 		}
 	}
 
