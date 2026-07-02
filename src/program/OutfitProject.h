@@ -489,7 +489,8 @@ public:
 	// Save external .mesh files for Starfield BSGeometry shapes alongside the NIF.
 	bool SaveExternalMeshes(nifly::NifFile& nif, const std::string& nifFileName);
 
-	// Generate mesh-shader meshlets + cull data for any Starfield BSGeometry shape that lacks them
+	// Generate mesh-shader meshlets for any Starfield BSGeometry shape that lacks them, and
+	// refresh the per-meshlet cull data of all others to match the current vertex positions.
 	// No-op for non-Starfield NIFs.
 	void GenerateStarfieldMeshlets(nifly::NifFile& nif);
 

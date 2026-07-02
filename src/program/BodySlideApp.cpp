@@ -3356,6 +3356,24 @@ void BodySlideApp::RefreshPresetsForCurrentOutfit() {
 	PopulatePresetList(presetName);
 }
 
+// Starfield: built NIFs contain morphed (and possibly zapped) geometry, so meshlets carried
+// over from the project NIF have stale cull AABBs, and shapes whose meshlets were dropped
+// (e.g. by zapping) have none at all — either way the mesh-shader renderer misbehaves.
+// Rebuild missing meshlets and refresh the cull data to match the final vertex positions.
+static void UpdateStarfieldMeshlets(NifFile& nif) {
+	if (!nif.GetHeader().GetVersion().IsSF())
+		return;
+
+	for (auto& s : nif.GetShapes()) {
+		auto bsgeo = dynamic_cast<BSGeometry*>(s);
+		if (!bsgeo)
+			continue;
+
+		bsgeo->GenerateMeshlets();
+		bsgeo->RecalcCullData();
+	}
+}
+
 int BodySlideApp::BuildBodies(bool localPath, bool clean, bool tri, bool forceNormals) {
 	if (projects.empty())
 		return 1;
@@ -3625,6 +3643,10 @@ int BodySlideApp::BuildBodies(bool localPath, bool clean, bool tri, bool forceNo
 			}
 		}
 	}
+
+	UpdateStarfieldMeshlets(nifBig);
+	if (activeSet.GenWeights())
+		UpdateStarfieldMeshlets(nifSmall);
 
 	bool triKeep = activeSet.PreventMorphFile();
 
@@ -4514,6 +4536,10 @@ int BodySlideApp::BuildListBodies(
 				}
 			}
 		}
+
+		UpdateStarfieldMeshlets(nifBig);
+		if (currentSet.GenWeights())
+			UpdateStarfieldMeshlets(nifSmall);
 
 		currentDiffs.Clear();
 

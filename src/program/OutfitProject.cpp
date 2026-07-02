@@ -553,6 +553,10 @@ std::string OutfitProject::Save(const wxFileName& sliderSetFile,
 		clone.SetShapeOrder(owner->GetShapeList());
 		clone.GetHeader().SetExportInfo("Exported using Outfit Studio.");
 
+		// Project ShapeData NIFs are BodySlide's build input; make sure freshly authored or
+		// edited shapes carry valid meshlets so built NIFs don't ship without them
+		GenerateStarfieldMeshlets(clone);
+
 		// Project ShapeData NIFs always use internal geometry for simplicity
 		ForceInternalGeometry(clone);
 
@@ -6569,18 +6573,21 @@ void OutfitProject::ForceInternalGeometry(NifFile& nif) {
 }
 
 void OutfitProject::GenerateStarfieldMeshlets(NifFile& nif) {
-	if (!nif.GetHeader().GetVersion().IsSF()) {
+	if (!nif.GetHeader().GetVersion().IsSF())
 		return;
-	}
 
-	// Generate meshlets for any BSGeometry that lacks them (freshly authored shapes, or shapes whose meshlets were dropped by an edit that changed the triangle list).
-	std::vector<NiShape*> toConvert;
 	for (auto& s : nif.GetShapes()) {
 		auto bsgeo = dynamic_cast<BSGeometry*>(s);
-        if (!bsgeo || bsgeo->HasMeshlets()) {
-            continue;
-		}
+		if (!bsgeo)
+			continue;
+
+		// Generate meshlets for any BSGeometry that lacks them (freshly authored shapes, or
+		// shapes whose meshlets were dropped by an edit that changed the triangle list).
 		bsgeo->GenerateMeshlets();
+
+		// Position-only edits (sliders, brushes) keep the meshlets but leave their cull AABBs
+		// describing the old positions; refresh them so the game doesn't cull visible meshlets.
+		bsgeo->RecalcCullData();
 	}
 }
 

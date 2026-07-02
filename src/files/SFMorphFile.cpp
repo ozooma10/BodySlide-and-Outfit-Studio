@@ -130,7 +130,10 @@ bool SFMorphFile::Write(const std::string& fileName) {
 	numMorphData = static_cast<uint32_t>(morphDataRaw.size());
 	morphFile.write((char*)&numMorphData, sizeof(numMorphData));
 
-	numOffsets = numVertices;
+	// Matches numVertices for any representable mesh; use the actual offset count so a vertex
+	// count beyond the uint16 limit (which CacheToFileData can't address) can't read past the
+	// end of the offsets vector.
+	numOffsets = static_cast<uint32_t>(offsets.size());
 	morphFile.write((char*)&numOffsets, sizeof(numOffsets)); // Must always match numVertices?
 
 	morphFile.write((char*)morphDataRaw.data(), sizeof(SFMorphData) * numMorphData);
@@ -156,14 +159,23 @@ bool SFMorphFile::FileToCacheData() {
 		morphDataUnpacked.tangent = DecodeUDEC3(morphData.y);
 	}
 
+	if (offsets.size() < numVertices) {
+		// Malformed file: offset table shorter than the vertex count
+		return false;
+	}
+
 	size_t morphDataSize = 0;
 
 	for (size_t i = 0; i < numVertices; i++) {
-		size_t size = 0;
-		if (numVertices > 0 && i != numVertices - 1)
-			size = offsets[i + 1].offset - offsets[i].offset;
-		else
-			size = numMorphData - offsets[i].offset;
+		uint32_t dataStart = offsets[i].offset;
+		uint32_t dataEnd = (i != numVertices - 1) ? offsets[i + 1].offset : numMorphData;
+
+		if (dataStart > dataEnd || dataEnd > numMorphData) {
+			// Malformed file: unordered or out-of-range morph data offsets
+			return false;
+		}
+
+		size_t size = dataEnd - dataStart;
 
 		std::vector<SFMorphData> morphData;
 		std::vector<SFMorphDataUnpacked> morphDataUnpacked;
@@ -174,11 +186,9 @@ bool SFMorphFile::FileToCacheData() {
 			return false;
 		}
 
-		uint32_t t = offsets[i].offset;
-
 		for (size_t j = 0; j < size; j++) {
-			morphData.push_back(morphDataRaw[t + j]);
-			morphDataUnpacked.push_back(morphDataRawUnpacked[t + j]);
+			morphData.push_back(morphDataRaw[dataStart + j]);
+			morphDataUnpacked.push_back(morphDataRawUnpacked[dataStart + j]);
 		}
 
 		vertexMorphData.push_back(morphData);
@@ -223,7 +233,14 @@ void SFMorphFile::CacheToFileData() {
 		std::vector<uint32_t> morphKeyIndices;
 
 		for (auto& morph : morphNames) {
-			auto& morphIndex = morphNamesCacheMap[morph];
+			// Look up without operator[]: a name with no cached data (e.g. a shape key that had
+			// no deltas anywhere in an imported file) would otherwise default-insert index 0 and
+			// alias the first morph's data.
+			auto morphNameIt = morphNamesCacheMap.find(morph);
+			if (morphNameIt == morphNamesCacheMap.end())
+				continue;
+
+			const uint32_t morphIndex = morphNameIt->second;
 
 			// The 128-bit keyMarker can only address shape keys 0-127, so a morph
 			// beyond that index cannot be represented in the morph.dat format. Skip
