@@ -3185,7 +3185,7 @@ int OutfitProject::LoadReferenceNif(const std::string& fileName, const std::stri
 		deletedShapes.push_back(shapeName);
 	}
 
-	clothData.Capture(refNif, fileName, {refShape}, IsSkeletonBone);
+	CaptureClothData(refNif, fileName, {refShape});
 
 	// Record physics XML links of the reference before it is merged in
 	CaptureRootPhysicsData(refNif);
@@ -3315,7 +3315,7 @@ int OutfitProject::LoadReference(const std::string& fileName, const std::string&
 		deletedShapes.push_back(shape);
 	}
 
-	clothData.Capture(refNif, refFile, {refShape}, IsSkeletonBone);
+	CaptureClothData(refNif, refFile, {refShape});
 
 	// Record physics XML links of the reference before it is merged in
 	CaptureRootPhysicsData(refNif);
@@ -6809,7 +6809,7 @@ int OutfitProject::ImportNIF(std::istream& fileStream, const std::string& fileNa
 		}
 	}
 
-	clothData.Capture(nif, fileName, nif.GetShapes(), IsSkeletonBone);
+	CaptureClothData(nif, fileName, nif.GetShapes());
 
 	// Record physics XML links of all shapes before they are merged in
 	CaptureRootPhysicsData(nif);
@@ -6908,19 +6908,66 @@ void OutfitProject::WriteAnimToNif(NifFile& nif, const std::string& shapeExcepti
 		host->ShowMessage(HostMessageLevel::Warning, message, _("Export Warning"));
 }
 
+void OutfitProject::CaptureClothData(NifFile& nif, const std::string& source, const std::vector<NiShape*>& shapes) {
+	clothData.Capture(nif, source, shapes, IsSkeletonBone);
+
+	// Input that already lost its cloth can't be repaired here, but it can be told apart from valid input
+	for (auto* shape : shapes) {
+		auto undriven = clothData.UndrivenBones(nif, shape, IsSkeletonBone);
+		if (!undriven.empty())
+			LogUndrivenBones(shape->name.get(), undriven, source);
+	}
+}
+
+void OutfitProject::LogUndrivenBones(const std::string& shapeName, const std::vector<std::string>& bones, const std::string& source) {
+	wxString names;
+	for (size_t i = 0; i < bones.size() && i < 8; ++i)
+		names += (i ? ", " : "") + wxString::FromUTF8(bones[i]);
+	if (bones.size() > 8)
+		names += wxString::Format(" and %zu more", bones.size() - 8);
+
+	if (source.empty())
+		wxLogWarning("Shape '%s' uses bones that neither the reference skeleton nor any exported cloth data provides: %s. "
+					 "If the shape had cloth physics, its cloth data is missing.",
+					 wxString::FromUTF8(shapeName),
+					 names);
+	else
+		wxLogWarning("Shape '%s' from '%s' uses bones that neither the reference skeleton nor any cloth data of the file provides: %s. "
+					 "If the shape had cloth physics, the file has lost its cloth data. Import it from the original file.",
+					 wxString::FromUTF8(shapeName),
+					 wxString::FromUTF8(source),
+					 names);
+}
+
 void OutfitProject::ChooseClothData(NifFile& nif) {
-	// NIF imports are automatic. Only standalone HKX imports need a choice,
-	// because they have no source shapes to associate them with.
-	ClothData::Sources additional;
-	const auto& manual = clothData.GetManualSources();
-	if (!manual.empty()) {
+	// Original cloth goes with the exported shapes whose bones it moves, so nothing needs to be asked about it
+	auto plan = clothData.Plan(nif, IsSkeletonBone, baseShape ? baseShape->name.get() : std::string());
+
+	// An HKX import that moves the bones of original cloth is usually meant to replace it
+	auto sources = plan.Resolve([&](const std::string& import, const ClothData::Sources& originals) {
+		if (!host->IsInteractive())
+			return true;
+
+		wxString names;
+		for (const auto& original : originals)
+			names += (names.empty() ? "'" : ", '") + wxString::FromUTF8(original) + "'";
+
+		auto msg = wxString::Format(_("The imported cloth data '%s' moves the same bones as the original cloth data %s of the exported shapes.\n\n"
+									  "Use the imported cloth data instead of the original?"),
+									wxString::FromUTF8(import),
+									names);
+		return host->Ask(msg, _("Replace cloth data"), false, HostAnswer::Yes) == HostAnswer::Yes;
+	});
+
+	// Imports whose bones can't be read, like Fallout 4 HKX files, are still an explicit choice
+	if (!plan.unknownImports.empty()) {
 		if (!host->IsInteractive()) {
 			// Unattended runs get the default answer of "all additional sources"
-			additional = manual;
+			sources.insert(sources.end(), plan.unknownImports.begin(), plan.unknownImports.end());
 		}
 		else {
 			wxArrayString names;
-			for (const auto& source : manual)
+			for (const auto& source : plan.unknownImports)
 				names.Add(wxString::FromUTF8(source));
 
 			wxArrayInt sel;
@@ -6929,11 +6976,15 @@ void OutfitProject::ChooseClothData(NifFile& nif) {
 								 names,
 								 sel)) {
 				for (size_t i = 0; i < sel.Count(); i++)
-					additional.push_back(manual[sel[i]]);
+					sources.push_back(plan.unknownImports[sel[i]]);
 			}
 		}
 	}
-	clothData.Apply(nif, additional);
+
+	clothData.Write(nif, sources);
+
+	for (const auto& [shapeName, bones] : plan.undrivenBones)
+		LogUndrivenBones(shapeName, bones);
 }
 
 void OutfitProject::ChoosePhysicsData(NifFile& nif) {

@@ -5,10 +5,10 @@ See the included LICENSE file
 
 #include "ClothData.h"
 #include "../../lib/LZ4F/xxhash.h"
+#include "../files/HkxCloth.h"
 
 #include <algorithm>
 #include <cctype>
-#include <set>
 #include <unordered_set>
 
 using namespace nifly;
@@ -47,6 +47,35 @@ std::unordered_set<std::string> Names(const BSClothExtraData& block) {
 	return names;
 }
 
+struct ShapeBones {
+	std::string name;
+	std::vector<std::string> bones;
+	std::vector<std::string> lower;
+};
+
+ShapeBones GetShapeBones(NifFile& nif, NiShape* shape) {
+	ShapeBones entry;
+	entry.name = shape->name.get();
+	nif.GetShapeBoneList(shape, entry.bones);
+	for (const auto& bone : entry.bones)
+		entry.lower.push_back(Lower(bone));
+	return entry;
+}
+
+// Starfield binds bones by name, so a bone outside the skeleton exists in game only if cloth creates and moves it.
+// Earlier games keep bones as nodes in the NIF.
+std::vector<std::string> Undriven(NifFile& nif, const ShapeBones& shape, const ClothData::SkeletonBones& isSkeletonBone, const std::set<std::string>& moved) {
+	std::vector<std::string> undriven;
+	if (!isSkeletonBone || !nif.GetHeader().GetVersion().IsSF())
+		return undriven;
+
+	for (size_t i = 0; i < shape.bones.size(); ++i) {
+		if (!isSkeletonBone(shape.bones[i]) && !moved.count(shape.lower[i]))
+			undriven.push_back(shape.bones[i]);
+	}
+	return undriven;
+}
+
 } // namespace
 
 std::string ClothData::Add(const std::string& source, std::unique_ptr<BSClothExtraData> block) {
@@ -64,8 +93,28 @@ std::string ClothData::Add(const std::string& source, std::unique_ptr<BSClothExt
 		key = source + " (" + std::to_string(suffix) + ")";
 	}
 
+	std::optional<std::set<std::string>> written;
+	if (auto cloth = HKX::ReadClothBones(block->data.data(), block->data.size())) {
+		written.emplace();
+		for (const auto& simulation : cloth->simulations) {
+			for (const auto& bone : simulation.writtenBones)
+				written->insert(Lower(bone));
+		}
+	}
+
+	writtenBones[key] = std::move(written);
+	sourceFiles[key] = source;
 	blocks.emplace(key, std::move(block));
 	return key;
+}
+
+bool ClothData::Readable(const std::string& source) const {
+	return Written(source) != nullptr;
+}
+
+const std::set<std::string>* ClothData::Written(const std::string& source) const {
+	auto it = writtenBones.find(source);
+	return it != writtenBones.end() && it->second ? &*it->second : nullptr;
 }
 
 ClothData::Sources ClothData::GetShapeSources(const std::string& shape) const {
@@ -99,13 +148,13 @@ void ClothData::Capture(NifFile& nif, const std::string& source, const std::vect
 	for (auto& block : nif.GetChildren<BSClothExtraData>(nullptr, true)) {
 		auto key = Add(source, block->Clone());
 		if (std::none_of(captured.begin(), captured.end(), [&](const Block& other) { return other.key == key; }))
-			captured.push_back({key, Names(*block)});
+			captured.push_back({key, Readable(key) ? std::unordered_set<std::string>{} : Names(*block)});
 	}
 
-	// The payload names the whole skeleton next to the bones it drives, so only the bones a shape adds to the
-	// reference skeleton tell its cloth apart. Every shape of the file is resolved, so cloth owned by a shape outside
-	// the capture is not handed to another.
-	std::unordered_map<NiShape*, Sources> owned;
+	// Unreadable payloads are claimed by bone names. Only the bones a shape adds to the reference skeleton tell their
+	// cloth apart, as the payload names the whole skeleton. Every shape of the file is resolved, so cloth owned by a
+	// shape outside the capture is not handed to another.
+	std::unordered_map<NiShape*, std::set<std::string>> owned;
 	std::set<std::string> claimed;
 	for (auto& shape : nif.GetShapes()) {
 		std::vector<std::string> bones;
@@ -118,23 +167,24 @@ void ClothData::Capture(NifFile& nif, const std::string& source, const std::vect
 		}
 
 		for (auto& block : captured) {
-			bool drives = std::any_of(added.begin(), added.end(), [&](const std::string& bone) { return block.names.count(bone) > 0; });
-			if (drives) {
-				owned[shape].push_back(block.key);
+			if (Readable(block.key))
+				continue;
+
+			bool names = std::any_of(added.begin(), added.end(), [&](const std::string& bone) { return block.names.count(bone) > 0; });
+			if (names) {
+				owned[shape].insert(block.key);
 				claimed.insert(block.key);
 			}
 		}
 	}
 
-	// Cloth that names no added bone of any shape, such as cloth that only drives the base skeleton, stays with every
-	// captured shape
 	for (auto& shape : shapes) {
 		if (!shape)
 			continue;
 
-		Sources sources = owned[shape];
+		Sources sources;
 		for (auto& block : captured) {
-			if (claimed.find(block.key) == claimed.end())
+			if (Readable(block.key) || owned[shape].count(block.key) || !claimed.count(block.key))
 				sources.push_back(block.key);
 		}
 
@@ -150,25 +200,193 @@ void ClothData::AddManual(const std::string& source, std::unique_ptr<BSClothExtr
 		manualSources.push_back(key);
 }
 
-void ClothData::Apply(NifFile& nif, const Sources& additional) const {
+std::vector<std::string> ClothData::UndrivenBones(NifFile& nif, NiShape* shape, const SkeletonBones& isSkeletonBone) const {
+	if (!shape)
+		return {};
+
+	std::set<std::string> moved;
+	for (const auto& source : GetShapeSources(shape->name.get())) {
+		const auto* written = Written(source);
+		if (!written)
+			return {};
+		moved.insert(written->begin(), written->end());
+	}
+	return Undriven(nif, GetShapeBones(nif, shape), isSkeletonBone, moved);
+}
+
+ClothData::ExportPlan ClothData::Plan(NifFile& nif, const SkeletonBones& isSkeletonBone, const std::string& referenceShape) const {
+	ExportPlan plan;
+	std::vector<ShapeBones> shapes;
+	for (auto& shape : nif.GetShapes())
+		shapes.push_back(GetShapeBones(nif, shape));
+
+	std::set<std::string> referencePrints;
+	if (!referenceShape.empty()) {
+		for (const auto& source : GetShapeSources(referenceShape)) {
+			auto block = blocks.find(source);
+			if (block != blocks.end())
+				referencePrints.insert(Fingerprint(*block->second));
+		}
+	}
+
+	auto fileOf = [&](const std::string& source) {
+		auto file = sourceFiles.find(source);
+		return file != sourceFiles.end() ? file->second : std::string();
+	};
+
+	// Several shapes can share cloth and different imports can hold the same payload, so each payload is kept once
+	std::set<std::string> keptPrints;
+	std::set<std::string> moved;
+	auto keep = [&](const std::string& source, Sources& into) {
+		if (!keptPrints.insert(Fingerprint(*blocks.at(source))).second)
+			return;
+		into.push_back(source);
+		if (const auto* written = Written(source))
+			moved.insert(written->begin(), written->end());
+	};
+
+	for (const auto& shape : shapes) {
+		const auto candidates = GetShapeSources(shape.name);
+		// Capture lists the cloth of the file a shape was loaded from first. Merges and copies append theirs.
+		const auto origin = candidates.empty() ? std::string() : fileOf(candidates.front());
+		for (const auto& source : candidates) {
+			auto block = blocks.find(source);
+			if (block == blocks.end())
+				continue;
+
+			const auto* written = Written(source);
+			if (!written) {
+				keep(source, plan.sources);
+				continue;
+			}
+
+			bool drives = false;
+			bool required = false;
+			for (size_t i = 0; i < shape.bones.size(); ++i) {
+				if (written->count(shape.lower[i])) {
+					drives = true;
+					required = required || !isSkeletonBone || !isSkeletonBone(shape.bones[i]);
+				}
+			}
+			if (!drives)
+				continue;
+
+			// Physics of reference skeleton bones that the shape's own file didn't carry stays with the reference
+			const auto print = Fingerprint(*block->second);
+			if (!required && shape.name != referenceShape && referencePrints.count(print)) {
+				bool own = std::any_of(candidates.begin(), candidates.end(), [&](const std::string& other) {
+					auto otherBlock = blocks.find(other);
+					return otherBlock != blocks.end() && fileOf(other) == origin && Fingerprint(*otherBlock->second) == print;
+				});
+				if (!own)
+					continue;
+			}
+
+			keep(source, plan.sources);
+		}
+	}
+
+	// A bone outside the skeleton exists only through cloth that writes it, so the cloth of another shape is needed too
+	// when a shape got such a bone by an edit like a weight copy. Bones the shape's own cloth writes stay with it, as
+	// different outfits can reuse bone names.
+	std::set<std::string> pool;
+	for (const auto& entry : shapeSources)
+		pool.insert(entry.second.begin(), entry.second.end());
+
+	for (const auto& shape : shapes) {
+		std::set<std::string> own;
+		for (const auto& source : GetShapeSources(shape.name)) {
+			if (const auto* written = Written(source))
+				own.insert(written->begin(), written->end());
+		}
+
+		for (size_t i = 0; i < shape.bones.size(); ++i) {
+			if ((isSkeletonBone && isSkeletonBone(shape.bones[i])) || own.count(shape.lower[i]))
+				continue;
+
+			for (const auto& entry : blocks) {
+				const auto* written = Written(entry.first);
+				if (pool.count(entry.first) && written && written->count(shape.lower[i]))
+					keep(entry.first, plan.sources);
+			}
+		}
+	}
+
+	for (const auto& source : manualSources) {
+		const auto* written = Written(source);
+		if (!written) {
+			plan.unknownImports.push_back(source);
+			continue;
+		}
+
+		std::set<std::string> used;
+		for (const auto& shape : shapes) {
+			for (const auto& bone : shape.lower) {
+				if (written->count(bone))
+					used.insert(bone);
+			}
+		}
+		if (used.empty() || keptPrints.count(Fingerprint(*blocks.at(source))))
+			continue;
+
+		Sources replaced;
+		for (const auto& original : plan.sources) {
+			const auto* originalWritten = Written(original);
+			if (originalWritten && std::any_of(used.begin(), used.end(), [&](const std::string& bone) { return originalWritten->count(bone) > 0; }))
+				replaced.push_back(original);
+		}
+
+		if (!replaced.empty()) {
+			plan.replacements.emplace_back(source, std::move(replaced));
+			moved.insert(written->begin(), written->end());
+		}
+		else
+			keep(source, plan.imports);
+	}
+
+	for (const auto& shape : shapes) {
+		const auto candidates = GetShapeSources(shape.name);
+		if (std::any_of(candidates.begin(), candidates.end(), [&](const std::string& source) { return blocks.count(source) && !Readable(source); }))
+			continue;
+
+		auto undriven = Undriven(nif, shape, isSkeletonBone, moved);
+		if (!undriven.empty())
+			plan.undrivenBones[shape.name] = std::move(undriven);
+	}
+	return plan;
+}
+
+ClothData::Sources ClothData::ExportPlan::Resolve(const ReplaceChoice& replace) const {
+	Sources resolved = sources;
+	resolved.insert(resolved.end(), imports.begin(), imports.end());
+
+	// Declining an import keeps the original cloth, but must not bring back cloth another import already replaced
+	for (const auto& [import, originals] : replacements) {
+		if (!replace(import, originals))
+			continue;
+
+		for (const auto& original : originals)
+			resolved.erase(std::remove(resolved.begin(), resolved.end(), original), resolved.end());
+		resolved.push_back(import);
+	}
+	return resolved;
+}
+
+void ClothData::Write(NifFile& nif, const Sources& sources) const {
 	auto root = nif.GetRootNode();
 	if (!root)
 		return;
 
-	Sources sources;
-	for (auto& shape : nif.GetShapes()) {
-		auto owned = GetShapeSources(shape->name.get());
-		sources.insert(sources.end(), owned.begin(), owned.end());
-	}
-	sources.insert(sources.end(), additional.begin(), additional.end());
-
 	nif.GetHeader().DeleteBlockByType("BSClothExtraData");
 
-	// Several shapes can share a source and different imports can hold the same block, so each payload is written once
 	std::set<std::string> written;
 	for (auto& source : sources) {
 		auto block = blocks.find(source);
 		if (block != blocks.end() && written.insert(Fingerprint(*block->second)).second)
 			root->extraDataRefs.AddBlockRef(nif.GetHeader().AddBlock(block->second->Clone()));
 	}
+}
+
+void ClothData::Apply(NifFile& nif, const SkeletonBones& isSkeletonBone, const std::string& referenceShape) const {
+	Write(nif, Plan(nif, isSkeletonBone, referenceShape).sources);
 }
