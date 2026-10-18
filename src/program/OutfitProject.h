@@ -194,8 +194,10 @@ class OutfitProject {
 	AnimInfo workAnim;
 	nifly::NiShape* baseShape = nullptr;
 
-	// Original cloth belongs to the imported shapes, not to an export-time choice.
+	// Original cloth goes with the exported shapes whose bones it moves, not with an export-time choice.
 	ClothData clothData;
+	void CaptureClothData(nifly::NifFile& nif, const std::string& source, const std::vector<nifly::NiShape*>& shapes);
+	void LogUndrivenBones(const std::string& shapeName, const std::vector<std::string>& bones, const std::string& source = {});
 
 	struct ShapeReferenceSource {
 		std::string projectFile;

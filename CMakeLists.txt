@@ -387,6 +387,7 @@ set(BSOS_OUTFIT_STUDIO_SOURCES
 	src/components/WeightNorm.cpp
 	src/components/MaskTransfer.cpp
 	src/components/ClothData.cpp
+	src/files/HkxCloth.cpp
 	src/files/FBXWrangler.cpp
 	src/files/MaskFile.cpp
 	src/files/ObjFile.cpp
@@ -486,6 +487,7 @@ if(BSOS_BUILD_TESTS)
 		tests/ArchiveIndexTest.cpp
 		tests/AutomationJsonTest.cpp
 		tests/ArchiveTest.cpp
+		tests/HkxClothTest.cpp
 		tests/HkxFileTest.cpp
 		tests/MainThreadDispatcherTest.cpp
 		tests/MaskTransferTest.cpp
@@ -503,6 +505,7 @@ if(BSOS_BUILD_TESTS)
 		src/components/AutomationJson.cpp
 		src/components/ClippingFixer.cpp
 		src/components/ClothData.cpp
+		src/files/HkxCloth.cpp
 		src/components/MaskTransfer.cpp
 		src/components/MeshAnalysis.cpp
 		src/components/Anim.cpp
